@@ -1,0 +1,29 @@
+{
+  "name": "chatgpt-playwright-api",
+  "version": "1.0.0",
+  "description": "Local Express API that automates the ChatGPT web UI with manual-login-only Playwright sessions.",
+  "main": "server.js",
+  "scripts": {
+    "login": "node src/chatgpt/login.js",
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
+  "keywords": [
+    "chatgpt",
+    "playwright",
+    "express",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "pino": "^10.1.0",
+    "playwright": "^1.55.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "pino-pretty": "^13.1.3"
+  }
+}
