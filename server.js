@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const path = require("path");
 const express = require("express");
+const { createProxyMiddleware } = require("http-proxy-middleware");
 const { askChatGPT, ManualLoginRequiredError } = require("./src/chatgpt/ask");
 const { closeSharedBrowser } = require("./src/chatgpt/browser");
 const { cancelLoginSession, getLoginSessionStatus, startLoginSession } = require("./src/chatgpt/loginSession");
@@ -13,18 +14,76 @@ const logger = createLogger("server");
 const app = express();
 const queueConcurrency = Number(process.env.CHATGPT_QUEUE_CONCURRENCY || 1);
 const queue = createQueue({ concurrency: queueConcurrency, logger });
+const noVncPort = Number(process.env.NOVNC_PORT || 6080);
+const noVncPublicPort = Number(process.env.NOVNC_PUBLIC_PORT || process.env.NOVNC_PORT || 6080);
+const noVncSameOrigin =
+  String(process.env.NOVNC_SAME_ORIGIN || "").toLowerCase() === "true" || Boolean(process.env.RENDER);
+const noVncPrefix = "/novnc";
+const noVncWsPath = "novnc/websockify";
 
 app.set("trust proxy", true);
 app.use(express.json({ limit: "1mb" }));
+
+let noVncProxy = null;
+if (noVncSameOrigin) {
+  const noVncTarget = `http://127.0.0.1:${noVncPort}`;
+  noVncProxy = createProxyMiddleware({
+    target: noVncTarget,
+    changeOrigin: false,
+    ws: true,
+    pathRewrite: (pathValue) => pathValue.replace(/^\/novnc/, ""),
+    onError: (error, _req, res) => {
+      logger.error({ err: error }, "noVNC proxy failed");
+      if (res && typeof res.status === "function" && !res.headersSent) {
+        res.status(502).json({
+          ok: false,
+          error: "Remote browser is unavailable. Ensure noVNC is running."
+        });
+      }
+    }
+  });
+  app.use(noVncPrefix, noVncProxy);
+}
+
 app.use(express.static(path.join(process.cwd(), "public")));
 
-function buildNoVncUrl(req) {
-  const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+function isLoopbackHost(hostname) {
+  const lower = (hostname || "").toLowerCase();
+  return lower === "localhost" || lower === "127.0.0.1" || lower === "::1";
+}
+
+function resolveBaseUrl(req) {
   const protocol = req.headers["x-forwarded-proto"] || req.protocol;
   const hostHeader = req.headers["x-forwarded-host"] || req.get("host");
-  const baseUrl = publicBaseUrl || `${protocol}://${hostHeader}`;
-  const url = new URL(baseUrl);
-  url.port = String(process.env.NOVNC_PUBLIC_PORT || process.env.NOVNC_PORT || 6080);
+  const inferredBaseUrl = `${protocol}://${hostHeader}`;
+  const configuredBaseUrl = (process.env.PUBLIC_BASE_URL || "").trim();
+
+  if (!configuredBaseUrl) {
+    return inferredBaseUrl;
+  }
+
+  try {
+    const configuredUrl = new URL(configuredBaseUrl);
+    const inferredUrl = new URL(inferredBaseUrl);
+    if (isLoopbackHost(configuredUrl.hostname) && !isLoopbackHost(inferredUrl.hostname)) {
+      return inferredBaseUrl;
+    }
+    return configuredUrl.toString();
+  } catch (error) {
+    logger.warn({ err: error, configuredBaseUrl }, "Invalid PUBLIC_BASE_URL, using request host");
+    return inferredBaseUrl;
+  }
+}
+
+function buildNoVncUrl(req) {
+  const url = new URL(resolveBaseUrl(req));
+  if (noVncSameOrigin) {
+    url.pathname = `${noVncPrefix}/vnc.html`;
+    url.search = `autoconnect=1&resize=scale&view_only=0&path=${encodeURIComponent(noVncWsPath)}`;
+    return url.toString();
+  }
+
+  url.port = String(noVncPublicPort);
   url.pathname = "/vnc.html";
   url.search = "autoconnect=1&resize=scale&view_only=0";
   return url.toString();
@@ -123,11 +182,16 @@ const server = app.listen(port, () => {
     {
       port,
       authRequired: isApiTokenEnabled(),
-      noVncPort: process.env.NOVNC_PUBLIC_PORT || process.env.NOVNC_PORT || 6080
+      noVncPort: noVncPublicPort,
+      noVncSameOrigin
     },
     "Express API listening"
   );
 });
+
+if (noVncProxy && typeof noVncProxy.upgrade === "function") {
+  server.on("upgrade", noVncProxy.upgrade);
+}
 
 async function shutdown(signal) {
   logger.info({ signal }, "Shutting down");
