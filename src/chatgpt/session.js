@@ -7,6 +7,7 @@ const sessionFile = path.resolve(
   process.env.CHATGPT_SESSION_FILE || "sessions/auth.json"
 );
 const debugDir = path.resolve(process.cwd(), process.env.CHATGPT_DEBUG_DIR || "debug");
+const sessionHosts = ["chatgpt.com", "chat.openai.com", "openai.com"];
 
 async function ensureRuntimeDirectories() {
   await fs.promises.mkdir(path.dirname(sessionFile), { recursive: true });
@@ -34,6 +35,102 @@ async function saveStorageState(context) {
   await ensureRuntimeDirectories();
   await context.storageState({ path: sessionFile });
   return sessionFile;
+}
+
+function isStorageStateLike(value) {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    Array.isArray(value.cookies) &&
+    Array.isArray(value.origins)
+  );
+}
+
+function normalizeStorageState(rawValue) {
+  let storageState = rawValue;
+
+  if (typeof storageState === "string") {
+    storageState = JSON.parse(storageState);
+  }
+
+  if (!isStorageStateLike(storageState)) {
+    throw new Error(
+      "Expected a Playwright storage state JSON object with \"cookies\" and \"origins\" arrays."
+    );
+  }
+
+  return {
+    cookies: storageState.cookies,
+    origins: storageState.origins
+  };
+}
+
+async function writeStorageState(storageState) {
+  await ensureRuntimeDirectories();
+  const normalized = normalizeStorageState(storageState);
+  const tempPath = `${sessionFile}.${process.pid}.${Date.now()}.tmp`;
+
+  await fs.promises.writeFile(tempPath, JSON.stringify(normalized, null, 2), "utf8");
+
+  try {
+    await fs.promises.rename(tempPath, sessionFile);
+  } catch (error) {
+    if (error.code !== "EEXIST" && error.code !== "EPERM") {
+      throw error;
+    }
+
+    await fs.promises.rm(sessionFile, { force: true });
+    await fs.promises.rename(tempPath, sessionFile);
+  }
+
+  return sessionFile;
+}
+
+async function readStorageState() {
+  if (!(await sessionFileExists())) {
+    return null;
+  }
+
+  const body = await fs.promises.readFile(sessionFile, "utf8");
+  return normalizeStorageState(body);
+}
+
+async function clearStorageState() {
+  await fs.promises.rm(sessionFile, { force: true });
+}
+
+async function getSessionFileMetadata() {
+  try {
+    const stats = await fs.promises.stat(sessionFile);
+    return {
+      exists: true,
+      size_bytes: stats.size,
+      updated_at: stats.mtime.toISOString()
+    };
+  } catch (_error) {
+    return {
+      exists: false,
+      size_bytes: 0,
+      updated_at: null
+    };
+  }
+}
+
+function summarizeStorageState(storageState) {
+  const normalized = normalizeStorageState(storageState);
+  const chatgptCookies = normalized.cookies.filter((cookie) =>
+    sessionHosts.some((host) => String(cookie.domain || "").includes(host))
+  );
+  const chatgptOrigins = normalized.origins.filter((origin) =>
+    sessionHosts.some((host) => String(origin.origin || "").includes(host))
+  );
+
+  return {
+    cookie_count: normalized.cookies.length,
+    origin_count: normalized.origins.length,
+    chatgpt_cookie_count: chatgptCookies.length,
+    chatgpt_origin_count: chatgptOrigins.length
+  };
 }
 
 async function isLoggedOut(page) {
@@ -85,11 +182,17 @@ async function verifySession(page, logger) {
 }
 
 module.exports = {
+  clearStorageState,
   ensureRuntimeDirectories,
   getDebugDirectory,
   getSessionFilePath,
+  getSessionFileMetadata,
   isLoggedOut,
+  normalizeStorageState,
+  readStorageState,
   saveStorageState,
+  summarizeStorageState,
   sessionFileExists,
-  verifySession
+  verifySession,
+  writeStorageState
 };

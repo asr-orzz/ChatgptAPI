@@ -9,6 +9,7 @@ const { WebSocket, WebSocketServer } = require("ws");
 const { askChatGPT, ManualLoginRequiredError } = require("./src/chatgpt/ask");
 const { closeSharedBrowser } = require("./src/chatgpt/browser");
 const { cancelLoginSession, getLoginSessionStatus, startLoginSession } = require("./src/chatgpt/loginSession");
+const { deleteStorageState, exportStorageState, importStorageState } = require("./src/chatgpt/sessionTransfer");
 const { isApiTokenEnabled, requireApiToken } = require("./src/utils/auth");
 const { createQueue } = require("./src/utils/queue");
 const { createLogger } = require("./src/utils/logger");
@@ -331,6 +332,69 @@ app.post("/login/cancel", requireApiToken, async (_req, res) => {
     res.status(500).json({
       ok: false,
       error: error.message || "Failed to cancel login session."
+    });
+  }
+});
+
+app.post("/session/import", requireApiToken, async (req, res) => {
+  try {
+    await cancelLoginSession(logger);
+    const imported = await importStorageState(req.body, logger);
+    res.json({
+      ok: true,
+      message: "Session imported, verified, and saved.",
+      ...imported,
+      login_status: await getLoginSessionStatus({
+        diagnostics: await getRemoteBrowserDiagnostics()
+      })
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Failed to import session");
+    res.status(400).json({
+      ok: false,
+      error: error.message || "Failed to import session."
+    });
+  }
+});
+
+app.get("/session/export", requireApiToken, async (_req, res) => {
+  try {
+    const exported = await exportStorageState();
+    if (!exported) {
+      res.status(404).json({
+        ok: false,
+        error: "No saved session exists."
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      ...exported
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Failed to export session");
+    res.status(500).json({
+      ok: false,
+      error: error.message || "Failed to export session."
+    });
+  }
+});
+
+app.delete("/session", requireApiToken, async (_req, res) => {
+  try {
+    await cancelLoginSession(logger);
+    const deleted = await deleteStorageState();
+    res.json({
+      ok: true,
+      message: deleted.deleted ? "Saved session removed." : "No saved session existed.",
+      ...deleted
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Failed to delete session");
+    res.status(500).json({
+      ok: false,
+      error: error.message || "Failed to delete session."
     });
   }
 });

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ChatGPT Remote Login Control Room</title>
+    <title>ChatGPT Session Control Room</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/app.css" />
   </head>
@@ -12,11 +12,11 @@
       <section class="hero">
         <div class="hero-shell">
           <div>
-            <span class="eyebrow">Single-user remote login flow</span>
-            <h1>Login once in the remote browser. Reuse the session through API.</h1>
+            <span class="eyebrow">Single-user session import flow</span>
+            <h1>Upload a saved ChatGPT session. Reuse it through API.</h1>
             <p class="hero-copy">
-              This dashboard keeps the manual ChatGPT login flow in one place: bearer token, remote browser, health checks,
-              and `/ask` testing. If noVNC or VNC is broken, the panels below show the exact layer that failed.
+              This dashboard drops the noVNC-first workflow. Generate a Playwright storage state locally, paste or upload it
+              here, let the server verify it, and then call <code>/ask</code> with the saved session.
             </p>
             <div class="metric-grid">
               <div class="metric">
@@ -24,12 +24,12 @@
                 <strong id="metric-auth">Checking...</strong>
               </div>
               <div class="metric">
-                <span>Remote bridge</span>
-                <strong id="metric-bridge">Checking...</strong>
-              </div>
-              <div class="metric">
                 <span>Saved session</span>
                 <strong id="metric-session">Checking...</strong>
+              </div>
+              <div class="metric">
+                <span>Session contents</span>
+                <strong id="metric-storage">Checking...</strong>
               </div>
               <div class="metric">
                 <span>Queue load</span>
@@ -40,15 +40,15 @@
 
           <div class="hero-side">
             <div class="focus-card">
-              <span>Remote browser target</span>
-              <strong id="hero-remote">Waiting for diagnostics...</strong>
+              <span>Preferred login method</span>
+              <strong id="hero-method">Waiting for status...</strong>
             </div>
             <div class="focus-card">
               <span>Latest session event</span>
               <strong id="hero-event">No session activity yet.</strong>
             </div>
             <div class="focus-card">
-              <span>Login status</span>
+              <span>Session status</span>
               <strong id="hero-status">Checking...</strong>
             </div>
           </div>
@@ -61,7 +61,7 @@
             <div class="card-head">
               <div>
                 <h2>Mission Control</h2>
-                <p class="subtle">Store the API token, start the remote login session, and manage the noVNC link.</p>
+                <p class="subtle">Store the bearer token, inspect the saved session, and manage export or deletion.</p>
               </div>
               <div class="status-wall" id="status-wall"></div>
             </div>
@@ -77,32 +77,57 @@
             </div>
 
             <div class="action-grid cluster">
-              <button id="start-login" class="primary">Start Login Session</button>
-              <button id="cancel-login" class="warning">Cancel Login</button>
-            </div>
-
-            <div class="action-grid cluster">
-              <button id="load-preview" class="secondary">Load Inline Browser</button>
-              <button id="open-remote-browser" class="secondary">Open in New Tab</button>
-              <button id="copy-remote-link" class="secondary">Copy Browser Link</button>
+              <button id="export-session" class="secondary">Export Saved Session</button>
+              <button id="clear-session" class="warning">Clear Saved Session</button>
             </div>
 
             <div class="notice neutral cluster" id="notice-box">Waiting for service status.</div>
 
             <div class="shell cluster">
               <div class="shell-head">
-                <strong>Remote browser link</strong>
+                <strong>Saved session file</strong>
                 <div class="status-wall" id="link-meta"></div>
               </div>
-              <p class="link-line mono" id="vnc-link-text">No remote browser link yet.</p>
+              <p class="link-line mono" id="session-file-text">Checking...</p>
             </div>
           </article>
 
           <article class="card">
             <div class="card-head">
               <div>
-                <h2>Login Timeline</h2>
-                <p class="subtle">These checkpoints follow the full path from display startup to a reusable saved ChatGPT session.</p>
+                <h2>Import Session</h2>
+                <p class="subtle">
+                  Use the <code>sessions/auth.json</code> file produced by <code>npm run login</code> on your own machine, or
+                  paste another valid Playwright storage state JSON.
+                </p>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="session-upload">Load JSON file</label>
+              <input id="session-upload" type="file" accept=".json,application/json" />
+              <p class="field-note">The file stays in your browser until you click import.</p>
+            </div>
+
+            <div class="field cluster">
+              <label class="label" for="session-json">Playwright storage state JSON</label>
+              <textarea
+                id="session-json"
+                class="large-area"
+                placeholder='Paste the exact contents of a Playwright storage state file, for example {"cookies":[],"origins":[]}'
+              ></textarea>
+            </div>
+
+            <div class="action-grid cluster">
+              <button id="import-session" class="primary">Import And Verify Session</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h2>Session Checklist</h2>
+                <p class="subtle">These checks focus on the saved auth state rather than a remote browser preview.</p>
               </div>
             </div>
             <div class="timeline" id="timeline"></div>
@@ -112,7 +137,7 @@
             <div class="card-head">
               <div>
                 <h2>Ask /ask</h2>
-                <p class="subtle">Use this after the session is marked ready to confirm that the saved browser state really works.</p>
+                <p class="subtle">Use this after the session is present to confirm the saved browser state really works.</p>
               </div>
             </div>
             <div class="field">
@@ -129,30 +154,26 @@
           <article class="card dark">
             <div class="card-head">
               <div>
-                <h2>Remote Browser</h2>
-                <p class="subtle">Inline noVNC preview. Use this instead of fighting a popup-blocked tab when the login session starts.</p>
-              </div>
-              <div class="status-wall">
-                <span class="pill" id="preview-mode">Preview idle</span>
+                <h2>Session Guide</h2>
+                <p class="subtle">This flow avoids depending on noVNC to refresh a login on the server.</p>
               </div>
             </div>
-
-            <div class="remote-frame" id="remote-frame">
-              <div class="empty-state">
-                <div>
-                  <strong id="empty-title">Preview not loaded</strong>
-                  <p class="empty-copy" id="empty-copy">Start a login session, then load the inline remote browser here. If the preview stays blank, check the diagnostics panel under it.</p>
-                </div>
-              </div>
-              <iframe id="remote-browser-frame" title="Remote browser preview"></iframe>
-            </div>
+            <ol class="guide-list">
+              <li>Run this repo locally and execute <code>npm run login</code> to log into ChatGPT in a normal browser.</li>
+              <li>Take the generated <code>sessions/auth.json</code> file from that local run.</li>
+              <li>Upload or paste it here and let the server verify the session against ChatGPT.</li>
+              <li>Use <code>/ask</code> or export the saved session again when you need a backup.</li>
+            </ol>
+            <p class="subtle cluster">
+              The legacy remote login endpoints still exist, but this page no longer relies on the noVNC preview as the main path.
+            </p>
           </article>
 
           <article class="card">
             <div class="card-head">
               <div>
                 <h2>Diagnostics</h2>
-                <p class="subtle">If the browser preview hangs, these cards show whether the display, VNC backend, or noVNC bridge is the actual failure.</p>
+                <p class="subtle">Session metadata, queue state, and optional legacy remote-browser diagnostics.</p>
               </div>
             </div>
             <div class="card-grid" id="diagnostic-grid"></div>
@@ -162,7 +183,7 @@
             <div class="card-head">
               <div>
                 <h2>Live Payload</h2>
-                <p class="subtle">Current combined `/health` and `/login/status` data.</p>
+                <p class="subtle">Current combined <code>/health</code> and <code>/login/status</code> data.</p>
               </div>
             </div>
             <pre class="output" id="status-output">Loading...</pre>

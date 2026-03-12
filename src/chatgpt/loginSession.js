@@ -2,10 +2,12 @@ const { launchBrowser } = require("./browser");
 const { selectors, isAnyVisible } = require("./selectors");
 const {
   ensureRuntimeDirectories,
+  getSessionFileMetadata,
   getSessionFilePath,
   isLoggedOut,
   saveStorageState,
-  sessionFileExists
+  summarizeStorageState,
+  readStorageState
 } = require("./session");
 const { waitForCondition } = require("../utils/wait");
 
@@ -105,14 +107,18 @@ async function monitorLoginSession(logger) {
 
 async function getLoginSessionStatus(extra = {}) {
   const { diagnostics = null, vncUrl = null } = extra;
+  const sessionMetadata = await getSessionFileMetadata();
+  const storedSession = sessionMetadata.exists ? await readStorageState().catch(() => null) : null;
   return {
     status: runtime.status,
     started_at: runtime.startedAt,
     last_error: runtime.lastError,
-    last_saved_at: runtime.lastSavedAt,
+    last_saved_at: runtime.lastSavedAt || sessionMetadata.updated_at,
     login_url: runtime.loginUrl,
     session_file: getSessionFilePath(),
-    session_file_exists: await sessionFileExists(),
+    session_file_exists: sessionMetadata.exists,
+    session_file_size_bytes: sessionMetadata.size_bytes,
+    session_summary: storedSession ? summarizeStorageState(storedSession) : null,
     vnc_url: vncUrl,
     diagnostics
   };

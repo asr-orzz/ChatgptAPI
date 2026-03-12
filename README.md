@@ -1,50 +1,33 @@
 # ChatGPT Web UI API
 
-Self-hosted single-tenant project that lets one owner deploy their own instance, log into ChatGPT manually in a browser running on the server, and then call a private `/ask` API.
+Self-hosted single-tenant project that reuses a saved ChatGPT browser session and exposes a private `/ask` API.
+
+## What changed
+
+The preferred login flow no longer depends on noVNC.
+
+Primary path:
+
+1. Run the repo locally on your own machine.
+2. Execute `npm run login` and finish ChatGPT login in a normal browser.
+3. Take the generated `sessions/auth.json` file.
+4. Upload or paste that Playwright storage state into the deployed service.
+5. Use `/ask`.
+
+The old remote login endpoints still exist, but the dashboard now treats session import as the main path.
 
 ## What this is
 
 - One deployed instance per owner
 - Manual ChatGPT login only
-- Saved session per deployment
+- One saved browser session per deployment
 - HTTP API for `/ask`
-- Small admin page at `/`
-- Docker/noVNC support for remote manual login
-
-## What this is not
-
-- Not a multi-tenant SaaS
-- Not guaranteed stable against future ChatGPT UI changes
-- Not a pure headless browser system
-
-## Project structure
-
-```text
-package.json
-server.js
-Dockerfile
-docker-compose.yml
-docker/start.sh
-public/index.html
-src/chatgpt/browser.js
-src/chatgpt/login.js
-src/chatgpt/loginSession.js
-src/chatgpt/ask.js
-src/chatgpt/selectors.js
-src/chatgpt/session.js
-src/utils/auth.js
-src/utils/logger.js
-src/utils/queue.js
-src/utils/wait.js
-.env.example
-README.md
-```
+- Admin page at `/`
+- Optional legacy Docker/noVNC support if you still want remote server-side login
 
 ## Main usage modes
 
 ### Local development
-
-Run locally and log in with a visible browser:
 
 ```bash
 npm install
@@ -52,33 +35,58 @@ npm run login
 npm run start
 ```
 
-### Self-hosted deployment
+### Self-hosted deployment without noVNC
 
-1. Deploy with Docker
-2. Open the admin page at `http://your-host:3000/`
-3. Start a login session
-4. Open the noVNC link
-5. Log into ChatGPT manually in the remote browser
-6. Wait for the session to become `ready`
-7. Use `/ask`
+1. Deploy the service
+2. Open `/`
+3. Paste `API_BEARER_TOKEN` if configured
+4. Upload or paste a Playwright storage state JSON
+5. Wait for import verification to succeed
+6. Use `/ask`
 
 ## Endpoints
 
 ### `GET /health`
 
-Basic health and queue status.
+Basic health, queue status, and optional legacy remote-browser diagnostics.
 
 ### `GET /login/status`
 
-Reports whether a login session is idle/running/ready/error and returns the noVNC URL.
+Returns current remote-login status plus saved session metadata such as file path, file size, and cookie/origin summary.
+
+### `POST /session/import`
+
+Imports and verifies a Playwright storage state before saving it as the server session.
+
+Accepted body:
+
+- Raw Playwright storage state JSON
+- JSON object with `cookies` and `origins` arrays
+
+Example:
+
+```bash
+curl -X POST http://localhost:3000/session/import \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @sessions/auth.json
+```
+
+### `GET /session/export`
+
+Returns the currently saved storage state JSON.
+
+### `DELETE /session`
+
+Deletes the saved storage state file.
 
 ### `POST /login/start`
 
-Starts a remote manual-login session in a non-headless browser on the server.
+Starts the older remote manual-login session in a non-headless browser on the server.
 
 ### `POST /login/cancel`
 
-Cancels the current remote login session.
+Cancels the older remote login session.
 
 ### `POST /ask`
 
@@ -107,15 +115,6 @@ Success:
 }
 ```
 
-Failure:
-
-```json
-{
-  "ok": false,
-  "error": "clear error message"
-}
-```
-
 ## API auth
 
 If you set `API_BEARER_TOKEN`, send it as:
@@ -127,7 +126,7 @@ curl -X POST http://localhost:3000/ask \
   -d '{"prompt":"Explain recursion simply"}'
 ```
 
-If `API_BEARER_TOKEN` is blank, the service is open. Do not expose it publicly that way.
+If `API_BEARER_TOKEN` is blank, the service is open.
 
 ## Example `.env`
 
@@ -165,52 +164,35 @@ NOVNC_STATIC_DIR=/usr/share/novnc
 VNC_PASSWORD=
 ```
 
-Leave `PUBLIC_BASE_URL` blank unless you need to force a specific external URL. The app will infer the current request host automatically.
+If you do not intend to use the legacy remote login path, the important setting is still `CHATGPT_SESSION_FILE`; that is where imported sessions are stored.
 
-## Docker deployment
+## Session import workflow
 
-### 1. Build and run
-
-```bash
-docker compose up --build
-```
-
-### 2. Open the admin page
-
-```text
-http://localhost:3000/
-```
-
-### 3. Start remote login
-
-- Enter your bearer token in the page if configured
-- Click `Start Login Session`
-- Open the noVNC URL shown on the page
-- Log into ChatGPT manually
-- Wait for status `ready`
-
-## Render deployment note
-
-Render web services expose a single external HTTP port. Keep `NOVNC_SAME_ORIGIN=true` so the app serves noVNC through the same host (`/novnc/...`) instead of requiring public access to `:6080`. The app now terminates the noVNC websocket itself at `/novnc/websockify`, which avoids the hanging "Connecting..." state caused by proxy upgrade failures.
-
-### 4. Call the API
+### Option 1: Generate the session with this repo locally
 
 ```bash
-curl -X POST http://localhost:3000/ask \
+npm install
+npm run login
+```
+
+That writes the Playwright storage state to `sessions/auth.json`. Upload that file through `/` or `POST /session/import`.
+
+### Option 2: Import through the admin page
+
+1. Open `/`
+2. Save the bearer token if required
+3. Load a JSON file or paste the storage state text
+4. Click `Import And Verify Session`
+5. Wait for the success notice
+
+### Option 3: Import through the API
+
+```bash
+curl -X POST http://localhost:3000/session/import \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"Explain recursion simply"}'
+  --data-binary @sessions/auth.json
 ```
-
-## Why Docker/noVNC exists
-
-For remote deployment, there is no normal desktop window to click through. This project uses:
-
-- `Xvfb` for a virtual display
-- a headed browser for better reliability than headless mode
-- `x11vnc` and `noVNC` so you can log into ChatGPT manually from your own browser
-
-That gives you a browser running on the server without needing a physical monitor.
 
 ## Files persisted on disk
 
@@ -220,44 +202,42 @@ That gives you a browser running on the server without needing a physical monito
 
 Mount `sessions/` and `debug/` as volumes in Docker.
 
-## Operational notes
+## Legacy remote-login notes
 
-- Default queue concurrency is `1`
-- One saved session per deployed instance
-- This project is meant for one owner per deployment
-- Remote login uses a separate temporary browser session that auto-saves the auth state when login succeeds
+Docker/noVNC support is still present for environments where you explicitly want a server-side headed browser and remote desktop. It is now optional rather than the main operational path.
+
+If you still use it:
+
+- `POST /login/start` starts the remote browser
+- `/login/status` returns the noVNC URL
+- `POST /login/cancel` stops that session
 
 ## Troubleshooting
 
-### Session missing or expired
+### Session import fails
 
-- Start a new login session from `/` or `POST /login/start`
-- Open the noVNC link
-- Log into ChatGPT manually again
+- Confirm the JSON is a real Playwright storage state with `cookies` and `origins`
+- Generate a fresh file with `npm run login`
+- Make sure the imported file was captured after ChatGPT login completed
+- If verification hits Cloudflare, retry with a fresher session file
 
-### Login session never becomes ready
-
-- Check the noVNC URL is reachable
-- If the URL points to the wrong host or port, leave `PUBLIC_BASE_URL` blank or set it to your real external URL
-- On Render, use `NOVNC_SAME_ORIGIN=true`
-- Complete any Cloudflare or verification screen manually
-- Increase `LOGIN_SESSION_TIMEOUT_MS` if needed
-
-### `/ask` fails after login
+### `/ask` fails after a successful import
 
 - Inspect the newest files in `debug/`
-- Check for UI changes or challenge pages
-- Update selectors in `src/chatgpt/selectors.js`
+- Check whether the ChatGPT session expired
+- Regenerate and re-import the session file
+- Update selectors in `src/chatgpt/selectors.js` if the ChatGPT UI changed
 
-### I do not want visible browser windows during normal requests
+### I still want remote login
 
-- Keep `PLAYWRIGHT_HEADLESS=false`
-- Use Docker with `Xvfb`
-- The browser will run off-screen on the server display
+- Keep the current Docker setup
+- Use `POST /login/start`
+- Open the noVNC URL from `/login/status`
+- Complete login manually in the remote browser
 
-### Security checklist
+## Security checklist
 
 - Set `API_BEARER_TOKEN`
-- Set `VNC_PASSWORD` if you expose noVNC/VNC outside a trusted network
-- Restrict ports `3000`, `5900`, and `6080`
-- Put the service behind your own reverse proxy if exposing it publicly
+- Treat `sessions/auth.json` and `/session/export` as sensitive credentials
+- Restrict access to the admin page and API
+- Set `VNC_PASSWORD` if you still expose noVNC/VNC

@@ -1,5 +1,7 @@
 const el = {
   token: document.getElementById("token"),
+  sessionUpload: document.getElementById("session-upload"),
+  sessionJson: document.getElementById("session-json"),
   prompt: document.getElementById("prompt"),
   status: document.getElementById("status-output"),
   ask: document.getElementById("ask-output"),
@@ -8,34 +10,25 @@ const el = {
   diagnosticGrid: document.getElementById("diagnostic-grid"),
   statusWall: document.getElementById("status-wall"),
   linkMeta: document.getElementById("link-meta"),
-  vncText: document.getElementById("vnc-link-text"),
+  sessionFileText: document.getElementById("session-file-text"),
   metricAuth: document.getElementById("metric-auth"),
-  metricBridge: document.getElementById("metric-bridge"),
   metricSession: document.getElementById("metric-session"),
+  metricStorage: document.getElementById("metric-storage"),
   metricQueue: document.getElementById("metric-queue"),
-  heroRemote: document.getElementById("hero-remote"),
+  heroMethod: document.getElementById("hero-method"),
   heroEvent: document.getElementById("hero-event"),
   heroStatus: document.getElementById("hero-status"),
   save: document.getElementById("save-token"),
   refresh: document.getElementById("refresh-status"),
-  start: document.getElementById("start-login"),
-  cancel: document.getElementById("cancel-login"),
-  loadPreview: document.getElementById("load-preview"),
-  open: document.getElementById("open-remote-browser"),
-  copy: document.getElementById("copy-remote-link"),
-  send: document.getElementById("send-prompt"),
-  previewMode: document.getElementById("preview-mode"),
-  previewFrame: document.getElementById("remote-browser-frame"),
-  previewShell: document.getElementById("remote-frame"),
-  emptyTitle: document.getElementById("empty-title"),
-  emptyCopy: document.getElementById("empty-copy")
+  importSession: document.getElementById("import-session"),
+  exportSession: document.getElementById("export-session"),
+  clearSession: document.getElementById("clear-session"),
+  send: document.getElementById("send-prompt")
 };
 
 const state = {
   health: null,
-  login: null,
-  previewLoaded: false,
-  previewUrl: ""
+  login: null
 };
 
 el.token.value = localStorage.getItem("chatgpt_api_token") || "";
@@ -96,14 +89,21 @@ function formatTime(value) {
   });
 }
 
-function boolText(value) {
-  if (value === true) {
-    return "Ready";
+function formatBytes(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
   }
-  if (value === false) {
-    return "Down";
+
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unit = 0;
+
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
   }
-  return "n/a";
+
+  return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
 function statusTag(ok, warning = false) {
@@ -113,171 +113,134 @@ function statusTag(ok, warning = false) {
   return warning ? "warn" : "bad";
 }
 
-function sessionSummary(status, login) {
-  if (status === "ready") {
-    return `Saved on ${formatTime(login.last_saved_at)}`;
+function effectiveStatus(login) {
+  if (login.session_file_exists === true && (login.status || "idle") === "idle") {
+    return "saved";
   }
-  if (status === "error") {
-    return login.last_error || "Login session failed.";
-  }
-  if (status === "running" || status === "saving") {
-    return `Started ${formatTime(login.started_at)}`;
-  }
-  return "No saved login yet";
+
+  return login.status || "idle";
 }
 
-function latestEvent(status, login) {
-  if (status === "ready") {
+function latestEvent(login) {
+  if (login.last_error) {
+    return login.last_error;
+  }
+
+  if (login.last_saved_at) {
     return `Session saved at ${formatTime(login.last_saved_at)}`;
   }
-  if (status === "error") {
-    return login.last_error || "Session failed";
+
+  if (login.started_at) {
+    return `Remote login started at ${formatTime(login.started_at)}`;
   }
-  if (status === "running" || status === "saving") {
-    return `Session active since ${formatTime(login.started_at)}`;
-  }
+
   return "No session activity yet.";
 }
 
-function ensurePreview(url) {
-  if (!url) {
-    return;
-  }
-
-  if (state.previewLoaded && state.previewUrl === url) {
-    return;
-  }
-
-  state.previewLoaded = true;
-  state.previewUrl = url;
-  el.previewFrame.src = url;
-  render();
+function downloadJson(filename, value) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], {
+    type: "application/json"
+  });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(link.href);
 }
 
-function clearPreview() {
-  state.previewLoaded = false;
-  state.previewUrl = "";
-  el.previewFrame.removeAttribute("src");
-  render();
+function parseSessionEditor() {
+  const raw = el.sessionJson.value.trim();
+  if (!raw) {
+    throw new Error("Paste a Playwright storage state JSON first.");
+  }
+
+  return JSON.parse(raw);
 }
 
 function render() {
   const health = state.health || {};
   const login = state.login || {};
-  const diag = login.diagnostics || health.remote_browser || {};
-  const status = login.status || "idle";
-  const remoteLink = login.vnc_url || "";
-  const vncReady = diag.vnc_tcp_reachable === true;
-  const displayReady = diag.display_socket_ready === true;
-  const sameOrigin = diag.same_origin !== false;
-  const previewAvailable = Boolean(remoteLink);
-  const sessionReady = login.session_file_exists === true || status === "ready";
-  const activeLogin = status === "running" || status === "saving";
+  const remote = health.remote_browser || login.diagnostics || {};
+  const summary = login.session_summary || {};
+  const saved = login.session_file_exists === true;
   const authProtected = health.auth_required === true;
-
-  if (state.previewLoaded && remoteLink && state.previewUrl !== remoteLink) {
-    state.previewUrl = remoteLink;
-    el.previewFrame.src = remoteLink;
-  }
+  const status = effectiveStatus(login);
+  const hasChatGPTState =
+    (summary.chatgpt_cookie_count || 0) > 0 || (summary.chatgpt_origin_count || 0) > 0;
 
   el.metricAuth.textContent = authProtected ? "Bearer token required" : "Open service";
-  el.metricBridge.textContent = vncReady ? "VNC backend online" : "VNC backend unavailable";
-  el.metricSession.textContent = sessionReady ? "Saved session present" : "No saved session";
+  el.metricSession.textContent = saved ? "Saved session present" : "No saved session";
+  el.metricStorage.textContent = saved
+    ? `${summary.chatgpt_cookie_count || 0} ChatGPT cookies`
+    : "Awaiting session import";
   el.metricQueue.textContent = health.queue
     ? `${health.queue.pending} pending / ${health.queue.concurrency} worker`
     : "Checking...";
 
-  el.heroRemote.textContent = sameOrigin ? "Same-origin noVNC through this app" : "Direct-port noVNC link";
-  el.heroEvent.textContent = latestEvent(status, login);
-  el.heroStatus.textContent = status === "idle" ? "Idle" : status;
+  el.heroMethod.textContent = "Local login and session upload";
+  el.heroEvent.textContent = latestEvent(login);
+  el.heroStatus.textContent = status;
 
   el.statusWall.innerHTML = `
     <span class="pill status-${esc(status)}">${esc(status)}</span>
     <span class="pill">Auth: <strong>${esc(authProtected ? "protected" : "open")}</strong></span>
-    <span class="pill">Display: <strong>${esc(displayReady ? "ready" : "missing")}</strong></span>
-    <span class="pill">VNC: <strong>${esc(vncReady ? "live" : "down")}</strong></span>
+    <span class="pill">Session file: <strong>${esc(saved ? "present" : "missing")}</strong></span>
+    <span class="pill">Legacy remote login: <strong>${esc(login.status || "idle")}</strong></span>
   `;
 
   el.linkMeta.innerHTML = `
-    <span class="mini-pill">Session file: <strong>${esc(login.session_file || "Unknown")}</strong></span>
     <span class="mini-pill">Saved at: <strong>${esc(formatTime(login.last_saved_at))}</strong></span>
+    <span class="mini-pill">Size: <strong>${esc(formatBytes(login.session_file_size_bytes || 0))}</strong></span>
   `;
 
-  if (remoteLink) {
-    el.vncText.innerHTML = `<a href="${esc(remoteLink)}" target="_blank" rel="noreferrer">${esc(remoteLink)}</a>`;
-  } else {
-    el.vncText.textContent = "No remote browser link yet.";
-  }
-
-  el.start.disabled = activeLogin;
-  el.cancel.disabled = !activeLogin;
-  el.open.disabled = !previewAvailable;
-  el.copy.disabled = !previewAvailable;
-  el.loadPreview.disabled = !previewAvailable;
-
-  el.previewMode.textContent = state.previewLoaded ? "Preview live" : "Preview idle";
-  el.previewShell.classList.toggle("loaded", state.previewLoaded);
-
-  if (state.previewLoaded) {
-    el.emptyTitle.textContent = "Preview loaded";
-    el.emptyCopy.textContent =
-      "If the canvas still stays black or frozen, use the diagnostics cards below to see whether the display, VNC port, or noVNC bridge is missing.";
-  } else if (previewAvailable) {
-    el.emptyTitle.textContent = "Remote browser ready to load";
-    el.emptyCopy.textContent =
-      "Use “Load Inline Browser” to bring noVNC into this page, or open the same link in a new tab if you prefer.";
-  } else {
-    el.emptyTitle.textContent = "Preview not loaded";
-    el.emptyCopy.textContent =
-      "Start a login session, then load the inline remote browser here. If the preview stays blank, check the diagnostics panel under it.";
-  }
+  el.sessionFileText.textContent = login.session_file || "Unknown";
+  el.exportSession.disabled = !saved;
+  el.clearSession.disabled = !saved;
 
   const steps = [
     {
-      ok: displayReady,
-      warning: diag.display_socket_ready == null,
-      title: "Virtual display is available",
+      ok: Boolean(state.health),
+      title: "Service is reachable",
+      copy: state.health ? "The API is responding and the dashboard can query status." : "Waiting for /health."
+    },
+    {
+      ok: saved,
+      warning: !saved,
+      title: "A storage state file is saved on the server",
+      copy: saved
+        ? `${login.session_file || "sessions/auth.json"} is present and ready to be reused.`
+        : "Import a Playwright storage state JSON to create the saved session file."
+    },
+    {
+      ok: hasChatGPTState,
+      warning: saved && !hasChatGPTState,
+      title: "The saved state contains ChatGPT/OpenAI data",
+      copy: saved
+        ? hasChatGPTState
+          ? `${summary.chatgpt_cookie_count || 0} cookies and ${summary.chatgpt_origin_count || 0} origins match ChatGPT/OpenAI.`
+          : "The file exists, but it does not look like a typical ChatGPT session state."
+        : "No saved session exists yet."
+    },
+    {
+      ok: login.status !== "error",
+      warning: login.status === "idle",
+      title: "No remote-login error is blocking session reuse",
       copy:
-        diag.display_socket_ready === true
-          ? `${diag.display || ":99"} is live and ready for GUI apps.`
-          : diag.display_socket_ready === false
-            ? `${diag.display || ":99"} is missing, so Chromium has no desktop to open on.`
-            : "Display readiness is not available yet."
+        login.status === "error"
+          ? login.last_error || "The last remote login session failed."
+          : login.status === "running" || login.status === "saving"
+            ? "A legacy remote login flow is still running."
+            : "No active noVNC login flow is required for this path."
     },
     {
-      ok: vncReady,
-      title: "VNC backend answers on the local port",
-      copy: vncReady
-        ? `Port ${diag.vnc_port || "5900"} is listening inside the container.`
-        : `Port ${diag.vnc_port || "5900"} is not answering, so noVNC has nothing to display.`
-    },
-    {
-      ok: sameOrigin || diag.novnc_tcp_reachable === true,
-      warning: sameOrigin,
-      title: "Remote browser console is published",
-      copy: sameOrigin
-        ? `noVNC is served through this app at ${diag.websocket_path || "/novnc/websockify"}.`
-        : diag.novnc_tcp_reachable === true
-          ? `Port ${diag.novnc_port || "6080"} is reachable.`
-          : `Port ${diag.novnc_port || "6080"} is not reachable.`
-    },
-    {
-      ok: activeLogin || status === "ready",
-      warning: status === "idle",
-      title: "Login browser session exists",
-      copy:
-        activeLogin
-          ? "The remote browser is active. Finish ChatGPT login there."
-          : status === "ready"
-            ? "The remote login already completed and the session is saved."
-            : status === "error"
-              ? login.last_error || "The login browser failed."
-              : "Start a login session to launch the remote browser."
-    },
-    {
-      ok: sessionReady,
-      title: "Saved ChatGPT session is available",
-      copy: sessionReady ? "Storage state is present and can be reused by /ask." : "No saved ChatGPT session exists yet."
+      ok: saved,
+      warning: !saved,
+      title: "/ask can reuse the saved browser state",
+      copy: saved
+        ? "Send a prompt below to confirm the imported session works end to end."
+        : "Save a session first, then test /ask."
     }
   ];
 
@@ -298,12 +261,22 @@ function render() {
     .join("");
 
   const diagnostics = [
-    ["Display socket", boolText(diag.display_socket_ready), diag.display_socket || diag.display || "unknown"],
-    ["VNC port", boolText(diag.vnc_tcp_reachable), diag.vnc_port || "5900"],
-    ["noVNC mode", sameOrigin ? "same-origin" : "direct-port", diag.static_assets || "unknown"],
-    ["WebSocket path", diag.websocket_path || "unknown", "remote browser websocket"],
-    ["Login session", status, sessionSummary(status, login)],
-    ["Saved session file", sessionReady ? "present" : "missing", login.session_file || "unknown"]
+    ["Session file", saved ? "present" : "missing", login.session_file || "unknown"],
+    ["Saved at", formatTime(login.last_saved_at), formatBytes(login.session_file_size_bytes || 0)],
+    ["Cookies", summary.cookie_count || 0, `${summary.chatgpt_cookie_count || 0} match ChatGPT/OpenAI`],
+    ["Origins", summary.origin_count || 0, `${summary.chatgpt_origin_count || 0} match ChatGPT/OpenAI`],
+    [
+      "Queue",
+      health.queue ? `${health.queue.pending} pending` : "n/a",
+      health.queue ? `${health.queue.concurrency} worker(s)` : "waiting for /health"
+    ],
+    [
+      "Legacy remote browser",
+      remote.enabled === false ? "disabled" : remote.enabled === true ? "available" : "unknown",
+      remote.enabled === true
+        ? "Optional fallback only; noVNC is no longer required for the main flow."
+        : "No remote browser required."
+    ]
   ];
 
   el.diagnosticGrid.innerHTML = diagnostics
@@ -351,7 +324,7 @@ async function refreshStatus({ silent = false } = {}) {
     const unauthorized = /Unauthorized/i.test(loginError.message);
     note(
       unauthorized
-        ? "Health is reachable. Enter the bearer token to manage login or use /ask."
+        ? "Health is reachable. Enter the bearer token to manage sessions or use /ask."
         : loginError.message,
       unauthorized ? "warn" : "bad"
     );
@@ -359,89 +332,80 @@ async function refreshStatus({ silent = false } = {}) {
     return;
   }
 
-  const status = login.status || "idle";
-  const diag = login.diagnostics || health.remote_browser || {};
-
-  if ((status === "running" || status === "saving") && login.vnc_url && !state.previewLoaded) {
-    ensurePreview(login.vnc_url);
-  }
-
   if (!silent) {
-    if (status === "ready") {
-      note("Manual login completed and the session is saved.", "good");
-    } else if (status === "error") {
-      note(login.last_error || "Login session failed.", "bad");
-    } else if (diag.vnc_tcp_reachable === false) {
-      note("The service is up, but the VNC backend is not answering inside the container.", "bad");
-    } else if (status === "running" || status === "saving") {
-      note("Remote browser session is active. Finish the ChatGPT login in the inline preview or a new tab.", "warn");
+    if (login.session_file_exists) {
+      note("Saved session detected. You can call /ask, export it, replace it, or clear it.", "good");
+    } else if (login.status === "error") {
+      note(login.last_error || "The last remote login session failed.", "bad");
     } else {
-      note("Service is reachable. Start a login session when you want to refresh the ChatGPT session.", "neutral");
+      note("Upload or paste a Playwright storage state JSON to save a ChatGPT session without noVNC.", "neutral");
     }
   }
 }
 
-async function startLogin() {
-  el.start.disabled = true;
+async function loadSessionFile(event) {
+  const [file] = event.target.files || [];
+  if (!file) {
+    return;
+  }
+
   try {
-    const response = await fetchJson("/login/start", { method: "POST" });
-    state.login = response;
-    if (response.vnc_url) {
-      ensurePreview(response.vnc_url);
-    }
+    el.sessionJson.value = await file.text();
+    note(`Loaded ${file.name}. Review the JSON and click import when ready.`, "good");
+  } catch (error) {
+    note(`Failed to read ${file.name}: ${error.message}`, "bad");
+  }
+}
+
+async function importSession() {
+  el.importSession.disabled = true;
+
+  try {
+    const storageState = parseSessionEditor();
+    const response = await fetchJson("/session/import", {
+      method: "POST",
+      body: JSON.stringify(storageState)
+    });
+
+    state.login = response.login_status || state.login;
     await refreshStatus({ silent: true });
-    note("Login session started. The remote browser is available below and can also be opened in a new tab.", "warn");
+    note("Session imported, verified, and saved on the server.", "good");
   } catch (error) {
     note(error.message, "bad");
     el.status.textContent = error.message;
   } finally {
-    el.start.disabled = false;
+    el.importSession.disabled = false;
   }
 }
 
-async function cancelLogin() {
-  el.cancel.disabled = true;
+async function exportSession() {
+  el.exportSession.disabled = true;
+
   try {
-    await fetchJson("/login/cancel", { method: "POST" });
-    clearPreview();
-    await refreshStatus({ silent: true });
-    note("Login session cancelled.", "neutral");
+    const response = await fetchJson("/session/export");
+    el.sessionJson.value = JSON.stringify(response.storage_state, null, 2);
+    downloadJson("chatgpt-session.json", response.storage_state);
+    note("Saved session exported.", "good");
   } catch (error) {
     note(error.message, "bad");
     el.status.textContent = error.message;
   } finally {
-    el.cancel.disabled = false;
+    await refreshStatus({ silent: true });
   }
 }
 
-function loadPreview() {
-  if (!state.login?.vnc_url) {
-    note("No remote browser link is available yet.", "warn");
-    return;
-  }
-  ensurePreview(state.login.vnc_url);
-  note("Inline remote browser loaded.", "good");
-}
-
-function openRemote() {
-  if (!state.login?.vnc_url) {
-    note("No remote browser link is available yet.", "warn");
-    return;
-  }
-  window.open(state.login.vnc_url, "_blank", "noopener,noreferrer");
-}
-
-async function copyRemote() {
-  if (!state.login?.vnc_url) {
-    note("No remote browser link is available yet.", "warn");
-    return;
-  }
+async function clearSession() {
+  el.clearSession.disabled = true;
 
   try {
-    await navigator.clipboard.writeText(state.login.vnc_url);
-    note("Remote browser link copied.", "good");
+    await fetchJson("/session", { method: "DELETE" });
+    note("Saved session cleared from the server.", "neutral");
+    await refreshStatus({ silent: true });
   } catch (error) {
-    note(`Failed to copy the link: ${error.message}`, "bad");
+    note(error.message, "bad");
+    el.status.textContent = error.message;
+  } finally {
+    el.clearSession.disabled = false;
   }
 }
 
@@ -470,16 +434,14 @@ el.save.addEventListener("click", () => {
   refreshStatus({ silent: true });
 });
 el.refresh.addEventListener("click", () => refreshStatus());
-el.start.addEventListener("click", startLogin);
-el.cancel.addEventListener("click", cancelLogin);
-el.loadPreview.addEventListener("click", loadPreview);
-el.open.addEventListener("click", openRemote);
-el.copy.addEventListener("click", copyRemote);
+el.sessionUpload.addEventListener("change", loadSessionFile);
+el.importSession.addEventListener("click", importSession);
+el.exportSession.addEventListener("click", exportSession);
+el.clearSession.addEventListener("click", clearSession);
 el.send.addEventListener("click", sendPrompt);
 
-el.open.disabled = true;
-el.copy.disabled = true;
-el.loadPreview.disabled = true;
+el.exportSession.disabled = true;
+el.clearSession.disabled = true;
 
 refreshStatus();
 setInterval(() => refreshStatus({ silent: true }), 10000);

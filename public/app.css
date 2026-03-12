@@ -287,6 +287,10 @@ p {
   color: #6ef0ba;
 }
 
+.status-saved {
+  color: #6ef0ba;
+}
+
 .status-error {
   color: #ff8ea2;
 }
@@ -310,6 +314,11 @@ p {
   margin-bottom: 10px;
 }
 
+code {
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 0.95em;
+}
+
 input,
 textarea,
 button,
@@ -331,6 +340,17 @@ textarea {
 textarea {
   min-height: 180px;
   resize: vertical;
+}
+
+.large-area {
+  min-height: 260px;
+}
+
+.field-note {
+  margin-top: 8px;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  font-size: 0.92rem;
 }
 
 input:focus,
@@ -515,6 +535,14 @@ button:disabled {
 
 .card-grid {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.guide-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 12px;
+  line-height: 1.7;
 }
 
 .stat {
