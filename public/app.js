@@ -174,13 +174,13 @@ function render() {
         : "No saved session exists yet."
     },
     {
-      ok: session.status === "ready",
+      ok: session.status === "saved",
       warning: session.status === "empty",
-      title: "The saved session is ready for /ask",
+      title: "The saved session file exists for /ask",
       copy:
-        session.status === "ready"
-          ? "Send a prompt below to verify the imported session works."
-          : session.last_error || "Import a valid cookie/session JSON and let the server verify it."
+        session.status === "saved"
+          ? "Send a prompt below to check whether the uploaded cookies are still valid."
+          : session.last_error || "Import valid cookie/session JSON so the server can save it."
     }
   ];
 
@@ -245,8 +245,8 @@ async function refreshStatus({ silent = false } = {}) {
   render();
 
   if (!silent) {
-    if (session.status === "ready") {
-      note("Saved session is ready. You can call /ask now.", "good");
+    if (session.status === "saved") {
+      note("Session file saved on the server. Now test /ask.", "good");
     } else if (session.status === "invalid") {
       note(session.last_error || "The saved session file is invalid.", "bad");
     } else {
@@ -281,7 +281,7 @@ async function importSession() {
 
     state.session = response.session_status || state.session;
     await refreshStatus({ silent: true });
-    note("Cookies/session imported, verified, and saved.", "good");
+    note("Cookies/session saved on the server.", "good");
   } catch (error) {
     note(error.message, "bad");
     el.status.textContent = error.message;

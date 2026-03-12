@@ -13,16 +13,19 @@ function toBoolean(value, fallback) {
 
 function getLaunchOptions(overrides = {}) {
   const channel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || undefined;
-  const headless = toBoolean(
+  const runningInContainer = process.platform === "linux" && fs.existsSync("/.dockerenv");
+  const requestedHeadless = toBoolean(
     overrides.headless,
-    toBoolean(process.env.PLAYWRIGHT_HEADLESS, false)
+    toBoolean(process.env.PLAYWRIGHT_HEADLESS, true)
   );
+  const hasDisplay =
+    process.platform !== "linux" || Boolean(String(process.env.DISPLAY || "").trim());
+  const headless = requestedHeadless || runningInContainer || Boolean(process.env.RENDER) || !hasDisplay;
   const startMinimized = toBoolean(
     overrides.startMinimized,
     toBoolean(process.env.PLAYWRIGHT_START_MINIMIZED, true)
   );
   const slowMo = Number(process.env.PLAYWRIGHT_SLOW_MO || 0);
-  const runningInContainer = process.platform === "linux" && fs.existsSync("/.dockerenv");
   const disableSandbox = toBoolean(
     process.env.PLAYWRIGHT_DISABLE_SANDBOX,
     runningInContainer || Boolean(process.env.RENDER)

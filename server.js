@@ -48,7 +48,7 @@ app.post("/session/import", async (req, res) => {
     const imported = await importStorageState(req.body, logger);
     res.json({
       ok: true,
-      message: "Cookies/session imported, verified, and saved.",
+      message: "Cookies/session saved on the server.",
       ...imported,
       session_status: await getStoredSessionStatus()
     });

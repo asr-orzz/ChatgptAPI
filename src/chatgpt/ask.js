@@ -274,7 +274,7 @@ async function askChatGPT({ prompt, logger }) {
 
   if (!(await sessionFileExists())) {
     throw new ManualLoginRequiredError(
-      `No saved session found at ${getSessionFilePath()}. Run "npm run login" first.`
+      `No saved session found at ${getSessionFilePath()}. Upload cookies/session JSON first or run "npm run login".`
     );
   }
 

@@ -26,7 +26,7 @@ async function getStoredSessionStatus() {
   }
 
   return {
-    status: !metadata.exists ? "empty" : lastError ? "invalid" : "ready",
+    status: !metadata.exists ? "empty" : lastError ? "invalid" : "saved",
     last_error: lastError,
     last_saved_at: metadata.updated_at,
     session_file: getSessionFilePath(),
@@ -93,13 +93,20 @@ async function verifyImportedSession(storageState, logger) {
 
 async function importStorageState(rawValue, logger) {
   const storageState = normalizeStorageState(rawValue);
-  const verification = await verifyImportedSession(storageState, logger);
   const sessionPath = await writeStorageState(storageState);
   const metadata = await getSessionFileMetadata();
 
+  logger?.info(
+    {
+      sessionPath,
+      cookieCount: storageState.cookies.length,
+      originCount: storageState.origins.length
+    },
+    "Cookies/session saved without upfront verification"
+  );
+
   return {
-    verified: true,
-    verification,
+    saved: true,
     session_file: sessionPath,
     session_summary: summarizeStorageState(storageState),
     session_metadata: metadata

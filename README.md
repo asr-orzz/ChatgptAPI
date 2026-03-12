@@ -8,7 +8,7 @@ Single-user Express API that reuses a saved ChatGPT browser session. The UI is c
 2. Open the app at `/`.
 3. Upload or paste the JSON.
 4. Click `Import And Save Session`.
-5. Wait until the saved session status is `ready`.
+5. Wait until the saved session status is `saved`.
 6. Use `/ask`.
 
 No bearer token is required. noVNC and remote-browser login are not part of the app anymore.
@@ -21,7 +21,7 @@ Returns queue status and current saved-session metadata.
 
 ### `GET /session/status`
 
-Returns whether the saved session is `empty`, `invalid`, or `ready`.
+Returns whether the saved session is `empty`, `invalid`, or `saved`.
 
 ### `POST /session/import`
 
@@ -88,7 +88,7 @@ PORT=3000
 LOG_LEVEL=info
 CHATGPT_BASE_URL=https://chatgpt.com
 CHATGPT_LOGIN_URL=https://chatgpt.com/auth/login
-PLAYWRIGHT_HEADLESS=false
+PLAYWRIGHT_HEADLESS=true
 PLAYWRIGHT_LOGIN_HEADLESS=false
 PLAYWRIGHT_START_MINIMIZED=true
 PLAYWRIGHT_DISABLE_SANDBOX=true
