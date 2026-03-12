@@ -5,8 +5,6 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-3000}:3000"
-      - "${NOVNC_PORT:-6080}:6080"
-      - "${VNC_PORT:-5900}:5900"
     env_file:
       - .env
     volumes:

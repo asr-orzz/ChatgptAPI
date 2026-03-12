@@ -5,14 +5,8 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates \
-  curl \
   fluxbox \
-  novnc \
   procps \
-  python3 \
-  websockify \
-  x11vnc \
-  xauth \
   xvfb \
   && rm -rf /var/lib/apt/lists/*
 
@@ -24,6 +18,6 @@ COPY . .
 
 RUN chmod +x docker/start.sh
 
-EXPOSE 3000 5900 6080
+EXPOSE 3000
 
 CMD ["./docker/start.sh"]

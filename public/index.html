@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ChatGPT Session Control Room</title>
+    <title>ChatGPT Cookie Session Control</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/app.css" />
   </head>
@@ -12,24 +12,20 @@
       <section class="hero">
         <div class="hero-shell">
           <div>
-            <span class="eyebrow">Single-user session import flow</span>
-            <h1>Upload a saved ChatGPT session. Reuse it through API.</h1>
+            <span class="eyebrow">Cookie upload flow</span>
+            <h1>Upload cookies. Save session. Use the API.</h1>
             <p class="hero-copy">
-              This dashboard drops the noVNC-first workflow. Generate a Playwright storage state locally, paste or upload it
-              here, let the server verify it, and then call <code>/ask</code> with the saved session.
+              Paste or upload cookie JSON or a full Playwright storage-state JSON. The server verifies it against ChatGPT,
+              saves the session, and <code>/ask</code> reuses it.
             </p>
             <div class="metric-grid">
-              <div class="metric">
-                <span>Service access</span>
-                <strong id="metric-auth">Checking...</strong>
-              </div>
               <div class="metric">
                 <span>Saved session</span>
                 <strong id="metric-session">Checking...</strong>
               </div>
               <div class="metric">
-                <span>Session contents</span>
-                <strong id="metric-storage">Checking...</strong>
+                <span>ChatGPT cookies</span>
+                <strong id="metric-cookies">Checking...</strong>
               </div>
               <div class="metric">
                 <span>Queue load</span>
@@ -40,8 +36,8 @@
 
           <div class="hero-side">
             <div class="focus-card">
-              <span>Preferred login method</span>
-              <strong id="hero-method">Waiting for status...</strong>
+              <span>Import mode</span>
+              <strong id="hero-method">Cookie JSON or storage-state JSON</strong>
             </div>
             <div class="focus-card">
               <span>Latest session event</span>
@@ -60,25 +56,40 @@
           <article class="card">
             <div class="card-head">
               <div>
-                <h2>Mission Control</h2>
-                <p class="subtle">Store the bearer token, inspect the saved session, and manage export or deletion.</p>
+                <h2>Upload Session</h2>
+                <p class="subtle">Load JSON from a file or paste it directly, then import it into the saved server session.</p>
               </div>
               <div class="status-wall" id="status-wall"></div>
             </div>
 
             <div class="field">
-              <label class="label" for="token">Bearer token</label>
-              <input id="token" type="password" placeholder="Paste API_BEARER_TOKEN if the service is protected" />
+              <label class="label" for="session-upload">Upload cookie JSON or session JSON</label>
+              <input id="session-upload" type="file" accept=".json,application/json" />
+              <p class="field-note">Supported: raw cookie arrays, objects with <code>cookies</code>, or full Playwright storage-state JSON.</p>
+            </div>
+
+            <div class="field cluster">
+              <label class="label" for="session-json">Cookie / session JSON</label>
+              <textarea
+                id="session-json"
+                class="large-area"
+                placeholder='[
+  {
+    "name": "__Secure-next-auth.session-token",
+    "value": "paste-cookie-value",
+    "domain": ".chatgpt.com",
+    "path": "/",
+    "secure": true,
+    "httpOnly": true
+  }
+]'
+              ></textarea>
             </div>
 
             <div class="action-grid cluster">
-              <button id="save-token" class="primary">Save Token</button>
-              <button id="refresh-status" class="secondary">Refresh Status</button>
-            </div>
-
-            <div class="action-grid cluster">
-              <button id="export-session" class="secondary">Export Saved Session</button>
+              <button id="import-session" class="primary">Import And Save Session</button>
               <button id="clear-session" class="warning">Clear Saved Session</button>
+              <button id="refresh-status" class="secondary">Refresh Status</button>
             </div>
 
             <div class="notice neutral cluster" id="notice-box">Waiting for service status.</div>
@@ -95,39 +106,8 @@
           <article class="card">
             <div class="card-head">
               <div>
-                <h2>Import Session</h2>
-                <p class="subtle">
-                  Use the <code>sessions/auth.json</code> file produced by <code>npm run login</code> on your own machine, or
-                  paste another valid Playwright storage state JSON.
-                </p>
-              </div>
-            </div>
-
-            <div class="field">
-              <label class="label" for="session-upload">Load JSON file</label>
-              <input id="session-upload" type="file" accept=".json,application/json" />
-              <p class="field-note">The file stays in your browser until you click import.</p>
-            </div>
-
-            <div class="field cluster">
-              <label class="label" for="session-json">Playwright storage state JSON</label>
-              <textarea
-                id="session-json"
-                class="large-area"
-                placeholder='Paste the exact contents of a Playwright storage state file, for example {"cookies":[],"origins":[]}'
-              ></textarea>
-            </div>
-
-            <div class="action-grid cluster">
-              <button id="import-session" class="primary">Import And Verify Session</button>
-            </div>
-          </article>
-
-          <article class="card">
-            <div class="card-head">
-              <div>
                 <h2>Session Checklist</h2>
-                <p class="subtle">These checks focus on the saved auth state rather than a remote browser preview.</p>
+                <p class="subtle">These checks focus on whether the uploaded cookies created a reusable ChatGPT session.</p>
               </div>
             </div>
             <div class="timeline" id="timeline"></div>
@@ -137,7 +117,7 @@
             <div class="card-head">
               <div>
                 <h2>Ask /ask</h2>
-                <p class="subtle">Use this after the session is present to confirm the saved browser state really works.</p>
+                <p class="subtle">Once the saved session is ready, test the API here.</p>
               </div>
             </div>
             <div class="field">
@@ -154,26 +134,24 @@
           <article class="card dark">
             <div class="card-head">
               <div>
-                <h2>Session Guide</h2>
-                <p class="subtle">This flow avoids depending on noVNC to refresh a login on the server.</p>
+                <h2>How It Works</h2>
+                <p class="subtle">This is the only supported path in the UI now.</p>
               </div>
             </div>
             <ol class="guide-list">
-              <li>Run this repo locally and execute <code>npm run login</code> to log into ChatGPT in a normal browser.</li>
-              <li>Take the generated <code>sessions/auth.json</code> file from that local run.</li>
-              <li>Upload or paste it here and let the server verify the session against ChatGPT.</li>
-              <li>Use <code>/ask</code> or export the saved session again when you need a backup.</li>
+              <li>Export ChatGPT cookies or create a Playwright <code>auth.json</code>.</li>
+              <li>Upload that JSON here.</li>
+              <li>Click <code>Import And Save Session</code>.</li>
+              <li>Wait for the saved session status to become ready.</li>
+              <li>Use <code>/ask</code>.</li>
             </ol>
-            <p class="subtle cluster">
-              The legacy remote login endpoints still exist, but this page no longer relies on the noVNC preview as the main path.
-            </p>
           </article>
 
           <article class="card">
             <div class="card-head">
               <div>
                 <h2>Diagnostics</h2>
-                <p class="subtle">Session metadata, queue state, and optional legacy remote-browser diagnostics.</p>
+                <p class="subtle">Saved session metadata and API queue state.</p>
               </div>
             </div>
             <div class="card-grid" id="diagnostic-grid"></div>
@@ -183,7 +161,7 @@
             <div class="card-head">
               <div>
                 <h2>Live Payload</h2>
-                <p class="subtle">Current combined <code>/health</code> and <code>/login/status</code> data.</p>
+                <p class="subtle">Current combined <code>/health</code> and <code>/session/status</code> data.</p>
               </div>
             </div>
             <pre class="output" id="status-output">Loading...</pre>
@@ -193,7 +171,7 @@
             <div class="card-head">
               <div>
                 <h2>Latest /ask Response</h2>
-                <p class="subtle">Shows the most recent API result or failure from the prompt test above.</p>
+                <p class="subtle">Shows the most recent API result or failure.</p>
               </div>
             </div>
             <pre class="output" id="ask-output">No request sent yet.</pre>

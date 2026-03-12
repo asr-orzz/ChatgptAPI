@@ -1,92 +1,51 @@
 # ChatGPT Web UI API
 
-Self-hosted single-tenant project that reuses a saved ChatGPT browser session and exposes a private `/ask` API.
+Single-user Express API that reuses a saved ChatGPT browser session. The UI is centered on one flow: upload cookies or a Playwright session JSON, save it on the server, then call `/ask`.
 
-## What changed
+## Main flow
 
-The preferred login flow no longer depends on noVNC.
+1. Export ChatGPT cookies, or generate `sessions/auth.json` locally with `npm run login`.
+2. Open the app at `/`.
+3. Upload or paste the JSON.
+4. Click `Import And Save Session`.
+5. Wait until the saved session status is `ready`.
+6. Use `/ask`.
 
-Primary path:
-
-1. Run the repo locally on your own machine.
-2. Execute `npm run login` and finish ChatGPT login in a normal browser.
-3. Take the generated `sessions/auth.json` file.
-4. Upload or paste that Playwright storage state into the deployed service.
-5. Use `/ask`.
-
-The old remote login endpoints still exist, but the dashboard now treats session import as the main path.
-
-## What this is
-
-- One deployed instance per owner
-- Manual ChatGPT login only
-- One saved browser session per deployment
-- HTTP API for `/ask`
-- Admin page at `/`
-- Optional legacy Docker/noVNC support if you still want remote server-side login
-
-## Main usage modes
-
-### Local development
-
-```bash
-npm install
-npm run login
-npm run start
-```
-
-### Self-hosted deployment without noVNC
-
-1. Deploy the service
-2. Open `/`
-3. Paste `API_BEARER_TOKEN` if configured
-4. Upload or paste a Playwright storage state JSON
-5. Wait for import verification to succeed
-6. Use `/ask`
+No bearer token is required. noVNC and remote-browser login are not part of the app anymore.
 
 ## Endpoints
 
 ### `GET /health`
 
-Basic health, queue status, and optional legacy remote-browser diagnostics.
+Returns queue status and current saved-session metadata.
 
-### `GET /login/status`
+### `GET /session/status`
 
-Returns current remote-login status plus saved session metadata such as file path, file size, and cookie/origin summary.
+Returns whether the saved session is `empty`, `invalid`, or `ready`.
 
 ### `POST /session/import`
 
-Imports and verifies a Playwright storage state before saving it as the server session.
+Imports and verifies one of these:
 
-Accepted body:
-
-- Raw Playwright storage state JSON
-- JSON object with `cookies` and `origins` arrays
+- Raw cookie JSON array
+- JSON object with `cookies`
+- Full Playwright storage-state JSON
 
 Example:
 
 ```bash
 curl -X POST http://localhost:3000/session/import \
-  -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  --data-binary @sessions/auth.json
+  --data-binary @cookies.json
 ```
 
 ### `GET /session/export`
 
-Returns the currently saved storage state JSON.
+Returns the currently saved Playwright storage-state JSON.
 
 ### `DELETE /session`
 
-Deletes the saved storage state file.
-
-### `POST /login/start`
-
-Starts the older remote manual-login session in a non-headless browser on the server.
-
-### `POST /login/cancel`
-
-Cancels the older remote login session.
+Deletes the saved session file.
 
 ### `POST /ask`
 
@@ -98,43 +57,35 @@ Request:
 }
 ```
 
-Success:
-
-```json
-{
-  "ok": true,
-  "answer": "Recursion is ...",
-  "timing_ms": {
-    "startup": 0,
-    "navigation": 0,
-    "submission": 0,
-    "wait_for_response": 0,
-    "scrape": 0,
-    "total": 0
-  }
-}
-```
-
-## API auth
-
-If you set `API_BEARER_TOKEN`, send it as:
+## Local use
 
 ```bash
-curl -X POST http://localhost:3000/ask \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt":"Explain recursion simply"}'
+npm install
+npm run login
+npm run start
 ```
 
-If `API_BEARER_TOKEN` is blank, the service is open.
+`npm run login` opens a normal browser, waits for you to log into ChatGPT, and saves `sessions/auth.json`. You can use that file directly in the UI.
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://localhost:3000/
+```
+
+Only port `3000` is exposed now.
 
 ## Example `.env`
 
 ```dotenv
 PORT=3000
 LOG_LEVEL=info
-API_BEARER_TOKEN=change-this-before-exposing-the-service
-PUBLIC_BASE_URL=
 CHATGPT_BASE_URL=https://chatgpt.com
 CHATGPT_LOGIN_URL=https://chatgpt.com/auth/login
 PLAYWRIGHT_HEADLESS=false
@@ -151,93 +102,31 @@ CHATGPT_STABILITY_POLLS=3
 CHATGPT_QUEUE_CONCURRENCY=1
 CHATGPT_SESSION_FILE=sessions/auth.json
 CHATGPT_DEBUG_DIR=debug
-LOGIN_SESSION_TIMEOUT_MS=900000
 ENABLE_XVFB=true
-ENABLE_VNC=true
 DISPLAY=:99
 XVFB_WHD=1440x1024x24
-VNC_PORT=5900
-NOVNC_PORT=6080
-NOVNC_PUBLIC_PORT=6080
-NOVNC_SAME_ORIGIN=true
-NOVNC_STATIC_DIR=/usr/share/novnc
-VNC_PASSWORD=
 ```
 
-If you do not intend to use the legacy remote login path, the important setting is still `CHATGPT_SESSION_FILE`; that is where imported sessions are stored.
+## Files on disk
 
-## Session import workflow
-
-### Option 1: Generate the session with this repo locally
-
-```bash
-npm install
-npm run login
-```
-
-That writes the Playwright storage state to `sessions/auth.json`. Upload that file through `/` or `POST /session/import`.
-
-### Option 2: Import through the admin page
-
-1. Open `/`
-2. Save the bearer token if required
-3. Load a JSON file or paste the storage state text
-4. Click `Import And Verify Session`
-5. Wait for the success notice
-
-### Option 3: Import through the API
-
-```bash
-curl -X POST http://localhost:3000/session/import \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data-binary @sessions/auth.json
-```
-
-## Files persisted on disk
-
-- Session state: `sessions/auth.json`
-- Failure screenshots: `debug/*.png`
-- Failure HTML dumps: `debug/*.html`
-
-Mount `sessions/` and `debug/` as volumes in Docker.
-
-## Legacy remote-login notes
-
-Docker/noVNC support is still present for environments where you explicitly want a server-side headed browser and remote desktop. It is now optional rather than the main operational path.
-
-If you still use it:
-
-- `POST /login/start` starts the remote browser
-- `/login/status` returns the noVNC URL
-- `POST /login/cancel` stops that session
+- Session file: `sessions/auth.json`
+- Debug screenshots: `debug/*.png`
+- Debug HTML: `debug/*.html`
 
 ## Troubleshooting
 
-### Session import fails
+### Import fails
 
-- Confirm the JSON is a real Playwright storage state with `cookies` and `origins`
-- Generate a fresh file with `npm run login`
-- Make sure the imported file was captured after ChatGPT login completed
-- If verification hits Cloudflare, retry with a fresher session file
+- Make sure the JSON is valid.
+- If you upload cookies, each cookie needs `name`, `value`, and either `domain` or `url`.
+- If verification fails, the cookies/session are expired or incomplete.
 
-### `/ask` fails after a successful import
+### `/ask` fails after import
 
-- Inspect the newest files in `debug/`
-- Check whether the ChatGPT session expired
-- Regenerate and re-import the session file
-- Update selectors in `src/chatgpt/selectors.js` if the ChatGPT UI changed
+- The imported session may be logged out or expired.
+- Inspect the newest files in `debug/`.
+- Generate a fresh `sessions/auth.json` with `npm run login` and import it again.
 
-### I still want remote login
+## Security
 
-- Keep the current Docker setup
-- Use `POST /login/start`
-- Open the noVNC URL from `/login/status`
-- Complete login manually in the remote browser
-
-## Security checklist
-
-- Set `API_BEARER_TOKEN`
-- Treat `sessions/auth.json` and `/session/export` as sensitive credentials
-- Restrict access to the admin page and API
-- Set `VNC_PASSWORD` if you still expose noVNC/VNC
+The saved session file is effectively your ChatGPT login state. Protect access to this service and to `sessions/auth.json`.

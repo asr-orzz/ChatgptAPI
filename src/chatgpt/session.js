@@ -46,6 +46,70 @@ function isStorageStateLike(value) {
   );
 }
 
+function mapSameSite(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized === "strict") {
+    return "Strict";
+  }
+
+  if (normalized === "lax") {
+    return "Lax";
+  }
+
+  if (normalized === "none" || normalized === "no_restriction") {
+    return "None";
+  }
+
+  return undefined;
+}
+
+function normalizeCookie(cookie, index) {
+  if (!cookie || typeof cookie !== "object") {
+    throw new Error(`Cookie at index ${index} must be a JSON object.`);
+  }
+
+  if (cookie.name === undefined || cookie.value === undefined) {
+    throw new Error(`Cookie at index ${index} must include "name" and "value".`);
+  }
+
+  const normalized = {
+    name: String(cookie.name),
+    value: String(cookie.value),
+    path: cookie.path ? String(cookie.path) : "/",
+    secure: Boolean(cookie.secure),
+    httpOnly: Boolean(cookie.httpOnly)
+  };
+
+  if (typeof cookie.domain === "string" && cookie.domain.trim()) {
+    normalized.domain = cookie.domain.trim();
+  } else if (typeof cookie.url === "string" && cookie.url.trim()) {
+    normalized.url = cookie.url.trim();
+  } else {
+    throw new Error(`Cookie at index ${index} must include either "domain" or "url".`);
+  }
+
+  const expiresValue = Number(cookie.expires ?? cookie.expirationDate);
+  if (Number.isFinite(expiresValue)) {
+    normalized.expires = expiresValue;
+  } else if (cookie.session === true) {
+    normalized.expires = -1;
+  }
+
+  const sameSite = mapSameSite(cookie.sameSite);
+  if (sameSite) {
+    normalized.sameSite = sameSite;
+  }
+
+  return normalized;
+}
+
 function normalizeStorageState(rawValue) {
   let storageState = rawValue;
 
@@ -53,14 +117,42 @@ function normalizeStorageState(rawValue) {
     storageState = JSON.parse(storageState);
   }
 
+  if (Array.isArray(storageState)) {
+    return {
+      cookies: storageState.map(normalizeCookie),
+      origins: []
+    };
+  }
+
+  if (
+    storageState &&
+    typeof storageState === "object" &&
+    storageState.storage_state &&
+    typeof storageState.storage_state === "object"
+  ) {
+    storageState = storageState.storage_state;
+  }
+
+  if (
+    storageState &&
+    typeof storageState === "object" &&
+    Array.isArray(storageState.cookies) &&
+    storageState.origins === undefined
+  ) {
+    storageState = {
+      cookies: storageState.cookies,
+      origins: []
+    };
+  }
+
   if (!isStorageStateLike(storageState)) {
     throw new Error(
-      "Expected a Playwright storage state JSON object with \"cookies\" and \"origins\" arrays."
+      "Expected either a cookie JSON array or a Playwright storage state JSON object."
     );
   }
 
   return {
-    cookies: storageState.cookies,
+    cookies: storageState.cookies.map(normalizeCookie),
     origins: storageState.origins
   };
 }

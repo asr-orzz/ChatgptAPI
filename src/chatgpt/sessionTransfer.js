@@ -12,6 +12,30 @@ const {
   writeStorageState
 } = require("./session");
 
+async function getStoredSessionStatus() {
+  const metadata = await getSessionFileMetadata();
+  let storageState = null;
+  let lastError = null;
+
+  if (metadata.exists) {
+    try {
+      storageState = await readStorageState();
+    } catch (error) {
+      lastError = error.message;
+    }
+  }
+
+  return {
+    status: !metadata.exists ? "empty" : lastError ? "invalid" : "ready",
+    last_error: lastError,
+    last_saved_at: metadata.updated_at,
+    session_file: getSessionFilePath(),
+    session_file_exists: metadata.exists,
+    session_file_size_bytes: metadata.size_bytes,
+    session_summary: storageState ? summarizeStorageState(storageState) : null
+  };
+}
+
 async function runSessionVerification({ storageState, headless, logger }) {
   const navigationTimeout = Number(process.env.PLAYWRIGHT_NAVIGATION_TIMEOUT_MS || 45000);
   let context;
@@ -108,6 +132,7 @@ async function deleteStorageState() {
 module.exports = {
   deleteStorageState,
   exportStorageState,
+  getStoredSessionStatus,
   importStorageState,
   verifyImportedSession
 };

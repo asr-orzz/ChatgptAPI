@@ -283,12 +283,20 @@ p {
   color: #ffd47e;
 }
 
+.status-empty {
+  color: #ffd47e;
+}
+
 .status-ready {
   color: #6ef0ba;
 }
 
 .status-saved {
   color: #6ef0ba;
+}
+
+.status-invalid {
+  color: #ff8ea2;
 }
 
 .status-error {
