@@ -135,7 +135,7 @@ If `API_BEARER_TOKEN` is blank, the service is open. Do not expose it publicly t
 PORT=3000
 LOG_LEVEL=info
 API_BEARER_TOKEN=change-this-before-exposing-the-service
-PUBLIC_BASE_URL=https://your-hostname
+PUBLIC_BASE_URL=
 CHATGPT_BASE_URL=https://chatgpt.com
 CHATGPT_LOGIN_URL=https://chatgpt.com/auth/login
 PLAYWRIGHT_HEADLESS=false
@@ -165,7 +165,7 @@ NOVNC_STATIC_DIR=/usr/share/novnc
 VNC_PASSWORD=
 ```
 
-For remote deployments, set `PUBLIC_BASE_URL` to your real external URL, not `localhost`.
+Leave `PUBLIC_BASE_URL` blank unless you need to force a specific external URL. The app will infer the current request host automatically.
 
 ## Docker deployment
 
@@ -238,7 +238,7 @@ Mount `sessions/` and `debug/` as volumes in Docker.
 ### Login session never becomes ready
 
 - Check the noVNC URL is reachable
-- If the URL points to `localhost`, set `PUBLIC_BASE_URL=https://your-service.onrender.com` (or your real host)
+- If the URL points to the wrong host or port, leave `PUBLIC_BASE_URL` blank or set it to your real external URL
 - On Render, use `NOVNC_SAME_ORIGIN=true`
 - Complete any Cloudflare or verification screen manually
 - Increase `LOGIN_SESSION_TIMEOUT_MS` if needed

@@ -3,247 +3,184 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ChatGPT Web UI Bridge</title>
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap");
-      :root { --bg:#081018; --panel:rgba(13,20,31,.88); --line:rgba(164,190,215,.16); --text:#edf4ff; --muted:#93a6be; --mint:#63d2a1; --blue:#67b4ff; --peach:#ff9a74; --gold:#ffcf78; --red:#ff7c97; --shadow:0 24px 80px rgba(0,0,0,.35); }
-      * { box-sizing:border-box; }
-      body { margin:0; font-family:"Space Grotesk","Segoe UI",sans-serif; color:var(--text); background:
-        radial-gradient(circle at 10% 8%, rgba(99,210,161,.16), transparent 26%),
-        radial-gradient(circle at 84% 14%, rgba(103,180,255,.18), transparent 24%),
-        radial-gradient(circle at 82% 84%, rgba(255,154,116,.14), transparent 22%),
-        linear-gradient(180deg,#070c12 0%,#0b1420 52%,#070c12 100%); }
-      main { width:min(1180px,calc(100% - 28px)); margin:0 auto; padding:28px 0 36px; }
-      .hero,.panel { border:1px solid var(--line); border-radius:28px; background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.015)),var(--panel); box-shadow:var(--shadow); }
-      .hero { padding:30px; overflow:hidden; position:relative; }
-      .eyebrow,.chip,.mini { display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:8px 12px; border:1px solid var(--line); background:rgba(255,255,255,.04); }
-      .eyebrow { color:var(--mint); border-color:rgba(99,210,161,.26); background:rgba(99,210,161,.08); text-transform:uppercase; letter-spacing:.05em; font-size:.84rem; }
-      h1 { margin:18px 0 10px; max-width:11ch; font-family:"Fraunces",Georgia,serif; font-size:clamp(2.8rem,6vw,5rem); line-height:.94; letter-spacing:-.04em; }
-      .copy,.sub { color:var(--muted); line-height:1.65; }
-      .hero-grid,.layout,.stats,.actions,.chips,.meta { display:grid; gap:14px; }
-      .hero-grid { grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); margin-top:22px; }
-      .metric,.stat { padding:14px 16px; border:1px solid var(--line); border-radius:18px; background:rgba(255,255,255,.03); }
-      .metric strong,.stat strong { display:block; margin-top:7px; font-size:1rem; }
-      .metric span,.stat span,.label { color:var(--muted); font-size:.84rem; text-transform:uppercase; letter-spacing:.05em; }
-      .layout { grid-template-columns:1.08fr .92fr; margin-top:18px; }
-      .stack { display:grid; gap:18px; }
-      .panel { padding:22px; }
-      .head { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; margin-bottom:18px; }
-      h2 { margin:0; font-size:1.25rem; }
-      .chips,.actions { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
-      .status-idle { color:var(--muted); } .status-running,.status-saving { color:var(--gold); } .status-ready,.good { color:var(--mint); } .status-error,.bad { color:var(--red); }
-      input,textarea,button { width:100%; border:0; border-radius:18px; font:inherit; }
-      input,textarea { padding:15px 16px; color:var(--text); background:rgba(5,10,16,.7); box-shadow:inset 0 0 0 1px rgba(164,190,215,.14); }
-      textarea { min-height:168px; resize:vertical; }
-      input:focus,textarea:focus { outline:none; box-shadow:inset 0 0 0 1px rgba(99,210,161,.6),0 0 0 4px rgba(99,210,161,.12); }
-      button { padding:14px 16px; font-weight:700; cursor:pointer; color:#071119; background:linear-gradient(135deg,#7ce3b5,#51c9f8); transition:transform .14s ease,opacity .14s ease; }
-      button:hover { transform:translateY(-1px); }
-      button.alt { color:var(--text); background:linear-gradient(135deg,rgba(255,255,255,.08),rgba(255,255,255,.03)); box-shadow:inset 0 0 0 1px rgba(164,190,215,.14); }
-      button.warn { color:#231200; background:linear-gradient(135deg,#ffd37c,#ff9b6d); }
-      button:disabled { opacity:.58; cursor:wait; transform:none; }
-      .field + .field,.box + .box,.meta { margin-top:16px; }
-      .notice,.box,.step,.diag { padding:15px 16px; border:1px solid var(--line); border-radius:18px; background:rgba(255,255,255,.03); }
-      .info { border-color:rgba(103,180,255,.24); background:rgba(103,180,255,.08); }
-      .success { border-color:rgba(99,210,161,.25); background:rgba(99,210,161,.08); }
-      .warnnote { border-color:rgba(255,207,120,.25); background:rgba(255,207,120,.08); }
-      .error { border-color:rgba(255,124,151,.25); background:rgba(255,124,151,.08); }
-      .steps,.diags { display:grid; gap:12px; margin:0; padding:0; list-style:none; }
-      .step b,.diag b { display:block; margin-bottom:4px; }
-      .muted,.link { color:var(--muted); }
-      .link a { color:var(--blue); word-break:break-word; }
-      .matrix { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); margin-bottom:12px; }
-      pre { margin:0; padding:18px; border-radius:18px; border:1px solid var(--line); background:rgba(4,8,14,.88); color:#c7d6ea; white-space:pre-wrap; word-break:break-word; overflow:auto; line-height:1.55; }
-      .mono { font-family:Consolas,"SFMono-Regular",monospace; }
-      @media (max-width:980px) { .layout { grid-template-columns:1fr; } }
-      @media (max-width:720px) { main { width:min(100% - 18px,1180px); padding-top:18px; } .hero,.panel { padding:18px; } h1 { max-width:none; font-size:clamp(2.2rem,12vw,3.5rem); } .head { flex-direction:column; } }
-    </style>
+    <title>ChatGPT Remote Login Control Room</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/app.css" />
   </head>
   <body>
     <main>
       <section class="hero">
-        <span class="eyebrow">Private ChatGPT Browser Bridge</span>
-        <h1>Manual login once. API calls after that.</h1>
-        <p class="copy">The page below starts the remote browser, opens the hosted noVNC console, and shows whether the VNC bridge is actually reachable. If the login tab sits on "Connecting...", the diagnostics section will tell you which part is failing.</p>
-        <div class="hero-grid">
-          <div class="metric"><span>Service mode</span><strong id="metric-mode">Checking...</strong></div>
-          <div class="metric"><span>Remote browser</span><strong id="metric-bridge">Checking...</strong></div>
-          <div class="metric"><span>Session file</span><strong id="metric-session">Checking...</strong></div>
-          <div class="metric"><span>Queue</span><strong id="metric-queue">Checking...</strong></div>
+        <div class="hero-shell">
+          <div>
+            <span class="eyebrow">Single-user remote login flow</span>
+            <h1>Login once in the remote browser. Reuse the session through API.</h1>
+            <p class="hero-copy">
+              This dashboard keeps the manual ChatGPT login flow in one place: bearer token, remote browser, health checks,
+              and `/ask` testing. If noVNC or VNC is broken, the panels below show the exact layer that failed.
+            </p>
+            <div class="metric-grid">
+              <div class="metric">
+                <span>Service access</span>
+                <strong id="metric-auth">Checking...</strong>
+              </div>
+              <div class="metric">
+                <span>Remote bridge</span>
+                <strong id="metric-bridge">Checking...</strong>
+              </div>
+              <div class="metric">
+                <span>Saved session</span>
+                <strong id="metric-session">Checking...</strong>
+              </div>
+              <div class="metric">
+                <span>Queue load</span>
+                <strong id="metric-queue">Checking...</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="hero-side">
+            <div class="focus-card">
+              <span>Remote browser target</span>
+              <strong id="hero-remote">Waiting for diagnostics...</strong>
+            </div>
+            <div class="focus-card">
+              <span>Latest session event</span>
+              <strong id="hero-event">No session activity yet.</strong>
+            </div>
+            <div class="focus-card">
+              <span>Login status</span>
+              <strong id="hero-status">Checking...</strong>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section class="layout">
+      <section class="workspace">
         <div class="stack">
-          <article class="panel">
-            <div class="head">
-              <div><h2>Access & Control</h2><p class="sub">Save your bearer token, start the login session, and open the remote browser.</p></div>
-              <div class="chips" id="status-chips"></div>
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h2>Mission Control</h2>
+                <p class="subtle">Store the API token, start the remote login session, and manage the noVNC link.</p>
+              </div>
+              <div class="status-wall" id="status-wall"></div>
             </div>
-            <div class="field"><label class="label" for="token">Bearer token</label><input id="token" type="password" placeholder="Paste API_BEARER_TOKEN if you set one" /></div>
-            <div class="actions meta"><button id="save-token">Save Token</button><button id="refresh-status" class="alt">Refresh Status</button></div>
-            <div class="actions meta"><button id="start-login">Start Login Session</button><button id="cancel-login" class="warn">Cancel Login</button></div>
-            <div class="actions meta"><button id="open-remote-browser" class="alt">Open Remote Browser</button><button id="copy-remote-link" class="alt">Copy Browser Link</button></div>
-            <div class="notice info" id="notice-box">Waiting for service status.</div>
-            <div class="box meta">
-              <div class="chips" id="link-meta"></div>
-              <p class="link mono" id="vnc-link-text">No remote browser link yet.</p>
+
+            <div class="field">
+              <label class="label" for="token">Bearer token</label>
+              <input id="token" type="password" placeholder="Paste API_BEARER_TOKEN if the service is protected" />
+            </div>
+
+            <div class="action-grid cluster">
+              <button id="save-token" class="primary">Save Token</button>
+              <button id="refresh-status" class="secondary">Refresh Status</button>
+            </div>
+
+            <div class="action-grid cluster">
+              <button id="start-login" class="primary">Start Login Session</button>
+              <button id="cancel-login" class="warning">Cancel Login</button>
+            </div>
+
+            <div class="action-grid cluster">
+              <button id="load-preview" class="secondary">Load Inline Browser</button>
+              <button id="open-remote-browser" class="secondary">Open in New Tab</button>
+              <button id="copy-remote-link" class="secondary">Copy Browser Link</button>
+            </div>
+
+            <div class="notice neutral cluster" id="notice-box">Waiting for service status.</div>
+
+            <div class="shell cluster">
+              <div class="shell-head">
+                <strong>Remote browser link</strong>
+                <div class="status-wall" id="link-meta"></div>
+              </div>
+              <p class="link-line mono" id="vnc-link-text">No remote browser link yet.</p>
             </div>
           </article>
 
-          <article class="panel">
-            <div class="head"><div><h2>Login Path</h2><p class="sub">These checks track the remote login flow from VNC startup to saved ChatGPT session.</p></div></div>
-            <ol class="steps" id="step-list"></ol>
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h2>Login Timeline</h2>
+                <p class="subtle">These checkpoints follow the full path from display startup to a reusable saved ChatGPT session.</p>
+              </div>
+            </div>
+            <div class="timeline" id="timeline"></div>
           </article>
 
-          <article class="panel">
-            <div class="head"><div><h2>Ask /ask</h2><p class="sub">Test the stored session after manual login completes.</p></div></div>
-            <div class="field"><label class="label" for="prompt">Prompt</label><textarea id="prompt" placeholder="Explain recursion simply"></textarea></div>
-            <div class="actions meta"><button id="send-prompt">Send Prompt</button></div>
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h2>Ask /ask</h2>
+                <p class="subtle">Use this after the session is marked ready to confirm that the saved browser state really works.</p>
+              </div>
+            </div>
+            <div class="field">
+              <label class="label" for="prompt">Prompt</label>
+              <textarea id="prompt" placeholder="Explain recursion simply"></textarea>
+            </div>
+            <div class="action-grid cluster">
+              <button id="send-prompt" class="primary">Send Prompt</button>
+            </div>
           </article>
         </div>
 
         <div class="stack">
-          <article class="panel">
-            <div class="head"><div><h2>Remote Browser Diagnostics</h2><p class="sub">If the noVNC tab does not move past "Connecting...", start here.</p></div></div>
-            <div class="matrix" id="diagnostic-matrix"></div>
-            <ul class="diags" id="diagnostic-list"></ul>
+          <article class="card dark">
+            <div class="card-head">
+              <div>
+                <h2>Remote Browser</h2>
+                <p class="subtle">Inline noVNC preview. Use this instead of fighting a popup-blocked tab when the login session starts.</p>
+              </div>
+              <div class="status-wall">
+                <span class="pill" id="preview-mode">Preview idle</span>
+              </div>
+            </div>
+
+            <div class="remote-frame" id="remote-frame">
+              <div class="empty-state">
+                <div>
+                  <strong id="empty-title">Preview not loaded</strong>
+                  <p class="empty-copy" id="empty-copy">Start a login session, then load the inline remote browser here. If the preview stays blank, check the diagnostics panel under it.</p>
+                </div>
+              </div>
+              <iframe id="remote-browser-frame" title="Remote browser preview"></iframe>
+            </div>
           </article>
 
-          <article class="panel">
-            <div class="head"><div><h2>Live Status</h2><p class="sub">Raw server payload for the current login session.</p></div></div>
-            <pre id="status-output">Loading...</pre>
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <h2>Diagnostics</h2>
+                <p class="subtle">If the browser preview hangs, these cards show whether the display, VNC backend, or noVNC bridge is the actual failure.</p>
+              </div>
+            </div>
+            <div class="card-grid" id="diagnostic-grid"></div>
           </article>
 
-          <article class="panel">
-            <div class="head"><div><h2>Response</h2><p class="sub">Latest `/ask` output.</p></div></div>
-            <pre id="ask-output">No request sent yet.</pre>
+          <article class="card dark">
+            <div class="card-head">
+              <div>
+                <h2>Live Payload</h2>
+                <p class="subtle">Current combined `/health` and `/login/status` data.</p>
+              </div>
+            </div>
+            <pre class="output" id="status-output">Loading...</pre>
+          </article>
+
+          <article class="card dark">
+            <div class="card-head">
+              <div>
+                <h2>Latest /ask Response</h2>
+                <p class="subtle">Shows the most recent API result or failure from the prompt test above.</p>
+              </div>
+            </div>
+            <pre class="output" id="ask-output">No request sent yet.</pre>
           </article>
         </div>
       </section>
     </main>
 
-    <script>
-      const el = {
-        token: document.getElementById("token"),
-        prompt: document.getElementById("prompt"),
-        status: document.getElementById("status-output"),
-        ask: document.getElementById("ask-output"),
-        notice: document.getElementById("notice-box"),
-        steps: document.getElementById("step-list"),
-        diagMatrix: document.getElementById("diagnostic-matrix"),
-        diagList: document.getElementById("diagnostic-list"),
-        chips: document.getElementById("status-chips"),
-        linkMeta: document.getElementById("link-meta"),
-        vncText: document.getElementById("vnc-link-text"),
-        metricMode: document.getElementById("metric-mode"),
-        metricBridge: document.getElementById("metric-bridge"),
-        metricSession: document.getElementById("metric-session"),
-        metricQueue: document.getElementById("metric-queue"),
-        save: document.getElementById("save-token"),
-        refresh: document.getElementById("refresh-status"),
-        start: document.getElementById("start-login"),
-        cancel: document.getElementById("cancel-login"),
-        open: document.getElementById("open-remote-browser"),
-        copy: document.getElementById("copy-remote-link"),
-        send: document.getElementById("send-prompt")
-      };
-      const state = { health: null, login: null };
-      el.token.value = localStorage.getItem("chatgpt_api_token") || "";
-
-      function esc(v) { return String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;"); }
-      function note(text, tone = "info") { el.notice.className = `notice ${tone}`; el.notice.textContent = text; }
-      function headers() { const h = { "Content-Type":"application/json" }; const token = el.token.value.trim(); if (token) h.Authorization = `Bearer ${token}`; return h; }
-      async function fetchJson(url, options = {}) { const res = await fetch(url, { ...options, headers: { ...headers(), ...(options.headers || {}) } }); const body = await res.json().catch(() => ({})); if (!res.ok) throw new Error(body.error || `Request failed with status ${res.status}`); return body; }
-      function boolLabel(v) { return v === true ? "reachable" : v === false ? "not reachable" : "n/a"; }
-
-      function render() {
-        const health = state.health || {};
-        const login = state.login || {};
-        const diag = login.diagnostics || health.remote_browser || {};
-        const status = login.status || "idle";
-
-        el.metricMode.textContent = diag.same_origin ? "Same-origin noVNC" : "Direct-port noVNC";
-        el.metricBridge.textContent = diag.vnc_tcp_reachable ? "VNC bridge alive" : "VNC bridge unavailable";
-        el.metricSession.textContent = login.session_file_exists ? "Saved session present" : "No saved session";
-        el.metricQueue.textContent = health.queue ? `${health.queue.pending} pending / ${health.queue.concurrency} worker` : "Checking...";
-
-        el.chips.innerHTML = `
-          <span class="chip status-${esc(status)}">${esc(status)}</span>
-          <span class="chip">Auth: <strong>${esc(health.auth_required ? "protected" : "open")}</strong></span>
-          <span class="chip">Mode: <strong>${esc(diag.same_origin ? "same origin" : "direct port")}</strong></span>`;
-
-        el.linkMeta.innerHTML = `
-          <span class="mini">Login target: <strong>${esc(login.login_url || "Not started")}</strong></span>
-          <span class="mini">Session file: <strong>${esc(login.session_file || "Unknown")}</strong></span>`;
-
-        if (login.vnc_url) {
-          el.vncText.innerHTML = `<a href="${esc(login.vnc_url)}" target="_blank" rel="noreferrer">${esc(login.vnc_url)}</a>`;
-          el.open.disabled = false;
-          el.copy.disabled = false;
-        } else {
-          el.vncText.textContent = "No remote browser link yet.";
-          el.open.disabled = true;
-          el.copy.disabled = true;
-        }
-
-        const steps = [
-          { ok: diag.enabled !== false, title: "VNC runtime is enabled", copy: diag.enabled === false ? "ENABLE_VNC is off, so the login browser cannot appear." : "The service is configured to expose a remote display." },
-          { ok: diag.vnc_tcp_reachable === true, title: "VNC backend is reachable", copy: diag.vnc_tcp_reachable === true ? `Port ${diag.vnc_port || "5900"} is answering inside the container.` : `Port ${diag.vnc_port || "5900"} is not answering, so noVNC has nothing to display.` },
-          { ok: diag.same_origin ? true : diag.novnc_tcp_reachable === true, title: "noVNC entrypoint is ready", copy: diag.same_origin ? `Assets are served through the app using ${diag.static_assets || "hosted"} mode.` : diag.novnc_tcp_reachable === true ? `Port ${diag.novnc_port || "6080"} is reachable.` : `Port ${diag.novnc_port || "6080"} is not reachable.` },
-          { ok: status === "running" || status === "saving" || status === "ready", title: "Login session exists", copy: status === "idle" ? "Start a login session to launch the remote browser." : status === "error" ? (login.last_error || "The browser session failed.") : "Open the remote browser and finish ChatGPT login there." },
-          { ok: login.session_file_exists === true || status === "ready", title: "Saved session available", copy: login.session_file_exists ? "The saved ChatGPT storage state exists and /ask can reuse it." : "No saved ChatGPT session exists yet." }
-        ];
-        el.steps.innerHTML = steps.map((s, i) => `<li class="step"><b class="${s.ok ? "good" : "bad"}">${i + 1}. ${esc(s.title)}</b><span class="muted">${esc(s.copy)}</span></li>`).join("");
-
-        const stats = [
-          ["Transport mode", diag.same_origin ? "same-origin" : "direct-port"],
-          ["VNC TCP", boolLabel(diag.vnc_tcp_reachable)],
-          ["noVNC assets", diag.static_assets || "unknown"],
-          ["Websocket path", diag.websocket_path || "unknown"],
-          ["noVNC TCP", boolLabel(diag.novnc_tcp_reachable)]
-        ];
-        el.diagMatrix.innerHTML = stats.map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join("");
-
-        const diags = [
-          { ok: diag.vnc_tcp_reachable === true, title: "Bridge health", copy: diag.vnc_tcp_reachable === true ? "The container can reach the local VNC server." : "The container cannot reach the local VNC server yet." },
-          { ok: diag.static_assets === "filesystem" || diag.novnc_tcp_reachable === true, title: "Asset delivery", copy: diag.static_assets === "filesystem" ? `noVNC files are served directly from ${diag.static_dir || "the container filesystem"}.` : diag.novnc_tcp_reachable === true ? "The app can reach the local noVNC asset service." : "The app cannot reach the local noVNC asset service." },
-          { ok: status !== "error", title: "Session monitor", copy: login.last_error || "No runtime login error has been reported yet." }
-        ];
-        el.diagList.innerHTML = diags.map((d) => `<li class="diag"><b class="${d.ok ? "good" : "bad"}">${esc(d.title)}</b><span class="muted">${esc(d.copy)}</span></li>`).join("");
-
-        el.status.textContent = JSON.stringify({ health, login }, null, 2);
-      }
-
-      async function refreshStatus({ silent = false } = {}) {
-        try {
-          const [health, login] = await Promise.all([fetchJson("/health"), fetchJson("/login/status")]);
-          state.health = health; state.login = login; render();
-          if (!silent) {
-            if (login.status === "ready") note("Manual login completed and the session is saved.", "success");
-            else if (login.status === "error") note(login.last_error || "Login session failed.", "error");
-            else if (login.status === "running" || login.status === "saving") note("Remote browser session is active. Open it and finish ChatGPT login there.", "warnnote");
-            else note("Service is reachable. Start a login session when ready.", "info");
-          }
-        } catch (error) {
-          el.status.textContent = error.message; note(error.message, "error");
-        }
-      }
-
-      async function startLogin() { el.start.disabled = true; try { const res = await fetchJson("/login/start", { method: "POST" }); await refreshStatus({ silent: true }); if (res.vnc_url) { note("Login session started. The remote browser link was opened in a new tab.", "warnnote"); window.open(res.vnc_url, "_blank", "noopener,noreferrer"); } else note("Login session started, but no browser URL was returned.", "warnnote"); } catch (error) { note(error.message, "error"); el.status.textContent = error.message; } finally { el.start.disabled = false; } }
-      async function cancelLogin() { el.cancel.disabled = true; try { await fetchJson("/login/cancel", { method: "POST" }); await refreshStatus({ silent: true }); note("Login session cancelled.", "info"); } catch (error) { note(error.message, "error"); el.status.textContent = error.message; } finally { el.cancel.disabled = false; } }
-      async function openRemote() { if (!state.login?.vnc_url) return note("No remote browser link is available yet.", "warnnote"); window.open(state.login.vnc_url, "_blank", "noopener,noreferrer"); }
-      async function copyRemote() { if (!state.login?.vnc_url) return note("No remote browser link is available yet.", "warnnote"); try { await navigator.clipboard.writeText(state.login.vnc_url); note("Remote browser link copied.", "success"); } catch (error) { note(`Failed to copy the link: ${error.message}`, "error"); } }
-      async function sendPrompt() { el.send.disabled = true; el.ask.textContent = "Waiting for response..."; try { const res = await fetchJson("/ask", { method: "POST", body: JSON.stringify({ prompt: el.prompt.value }) }); el.ask.textContent = JSON.stringify(res, null, 2); } catch (error) { el.ask.textContent = error.message; note(error.message, "error"); } finally { el.send.disabled = false; } }
-
-      el.save.addEventListener("click", () => { localStorage.setItem("chatgpt_api_token", el.token.value.trim()); note("Token stored in this browser only.", "success"); refreshStatus({ silent: true }); });
-      el.refresh.addEventListener("click", () => refreshStatus());
-      el.start.addEventListener("click", startLogin);
-      el.cancel.addEventListener("click", cancelLogin);
-      el.open.addEventListener("click", openRemote);
-      el.copy.addEventListener("click", copyRemote);
-      el.send.addEventListener("click", sendPrompt);
-      el.open.disabled = true; el.copy.disabled = true;
-      refreshStatus(); setInterval(() => refreshStatus({ silent: true }), 10000);
-    </script>
+    <script src="/app.js"></script>
   </body>
 </html>

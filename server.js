@@ -20,6 +20,7 @@ const queue = createQueue({ concurrency: queueConcurrency, logger });
 const vncPort = Number(process.env.VNC_PORT || 5900);
 const noVncPort = Number(process.env.NOVNC_PORT || 6080);
 const noVncPublicPort = Number(process.env.NOVNC_PUBLIC_PORT || process.env.NOVNC_PORT || 6080);
+const display = String(process.env.DISPLAY || ":99");
 const noVncSameOrigin =
   String(process.env.NOVNC_SAME_ORIGIN || "").toLowerCase() === "true" || Boolean(process.env.RENDER);
 const noVncPrefix = "/novnc";
@@ -73,6 +74,20 @@ function isVncEnabled() {
   return String(process.env.ENABLE_VNC ?? "true").toLowerCase() === "true";
 }
 
+function getDisplaySocketPath(displayValue) {
+  const trimmed = String(displayValue || "").trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const displayNumber = trimmed.replace(/^:/, "").split(".")[0];
+  if (!displayNumber) {
+    return null;
+  }
+
+  return `/tmp/.X11-unix/X${displayNumber}`;
+}
+
 function checkTcpPort(port, timeoutMs = 800) {
   return new Promise((resolve) => {
     if (!Number.isFinite(port) || port <= 0) {
@@ -104,8 +119,12 @@ function checkTcpPort(port, timeoutMs = 800) {
 }
 
 async function getRemoteBrowserDiagnostics() {
+  const displaySocketPath = getDisplaySocketPath(display);
   return {
     enabled: isVncEnabled(),
+    display,
+    display_socket: displaySocketPath,
+    display_socket_ready: displaySocketPath ? fs.existsSync(displaySocketPath) : null,
     same_origin: noVncSameOrigin,
     static_assets: noVncStaticMode,
     static_dir: noVncStaticMode === "filesystem" ? noVncStaticDir : null,
@@ -136,7 +155,14 @@ function resolveBaseUrl(req) {
   try {
     const configuredUrl = new URL(configuredBaseUrl);
     const inferredUrl = new URL(inferredBaseUrl);
-    if (isLoopbackHost(configuredUrl.hostname) && !isLoopbackHost(inferredUrl.hostname)) {
+    const configuredIsLoopback = isLoopbackHost(configuredUrl.hostname);
+    const inferredIsLoopback = isLoopbackHost(inferredUrl.hostname);
+    if (
+      configuredIsLoopback &&
+      (!inferredIsLoopback ||
+        configuredUrl.host !== inferredUrl.host ||
+        configuredUrl.protocol !== inferredUrl.protocol)
+    ) {
       return inferredBaseUrl;
     }
     return configuredUrl.toString();
