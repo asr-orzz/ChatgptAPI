@@ -1,3 +1,4 @@
+const fs = require("fs");
 const { chromium } = require("playwright");
 
 const sharedBrowserPromises = new Map();
@@ -21,12 +22,21 @@ function getLaunchOptions(overrides = {}) {
     toBoolean(process.env.PLAYWRIGHT_START_MINIMIZED, true)
   );
   const slowMo = Number(process.env.PLAYWRIGHT_SLOW_MO || 0);
+  const runningInContainer = process.platform === "linux" && fs.existsSync("/.dockerenv");
+  const disableSandbox = toBoolean(
+    process.env.PLAYWRIGHT_DISABLE_SANDBOX,
+    runningInContainer || Boolean(process.env.RENDER)
+  );
   const args = [
     "--disable-blink-features=AutomationControlled",
     "--disable-dev-shm-usage",
     "--no-default-browser-check",
     "--disable-notifications"
   ];
+
+  if (disableSandbox) {
+    args.push("--no-sandbox", "--disable-setuid-sandbox");
+  }
 
   if (!headless && startMinimized) {
     args.push("--start-minimized");

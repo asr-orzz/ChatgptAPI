@@ -141,6 +141,7 @@ CHATGPT_LOGIN_URL=https://chatgpt.com/auth/login
 PLAYWRIGHT_HEADLESS=false
 PLAYWRIGHT_LOGIN_HEADLESS=false
 PLAYWRIGHT_START_MINIMIZED=true
+PLAYWRIGHT_DISABLE_SANDBOX=true
 PLAYWRIGHT_SLOW_MO=0
 PLAYWRIGHT_BROWSER_CHANNEL=
 PLAYWRIGHT_NAVIGATION_TIMEOUT_MS=45000
@@ -160,6 +161,7 @@ VNC_PORT=5900
 NOVNC_PORT=6080
 NOVNC_PUBLIC_PORT=6080
 NOVNC_SAME_ORIGIN=true
+NOVNC_STATIC_DIR=/usr/share/novnc
 VNC_PASSWORD=
 ```
 
@@ -189,7 +191,7 @@ http://localhost:3000/
 
 ## Render deployment note
 
-Render web services expose a single external HTTP port. Keep `NOVNC_SAME_ORIGIN=true` so the app serves noVNC through the same host (`/novnc/...`) instead of requiring public access to `:6080`.
+Render web services expose a single external HTTP port. Keep `NOVNC_SAME_ORIGIN=true` so the app serves noVNC through the same host (`/novnc/...`) instead of requiring public access to `:6080`. The app now terminates the noVNC websocket itself at `/novnc/websockify`, which avoids the hanging "Connecting..." state caused by proxy upgrade failures.
 
 ### 4. Call the API
 

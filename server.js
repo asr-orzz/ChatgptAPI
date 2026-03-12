@@ -1,8 +1,11 @@
 require("dotenv").config();
 
+const fs = require("fs");
+const net = require("net");
 const path = require("path");
 const express = require("express");
 const { createProxyMiddleware } = require("http-proxy-middleware");
+const { WebSocket, WebSocketServer } = require("ws");
 const { askChatGPT, ManualLoginRequiredError } = require("./src/chatgpt/ask");
 const { closeSharedBrowser } = require("./src/chatgpt/browser");
 const { cancelLoginSession, getLoginSessionStatus, startLoginSession } = require("./src/chatgpt/loginSession");
@@ -14,38 +17,106 @@ const logger = createLogger("server");
 const app = express();
 const queueConcurrency = Number(process.env.CHATGPT_QUEUE_CONCURRENCY || 1);
 const queue = createQueue({ concurrency: queueConcurrency, logger });
+const vncPort = Number(process.env.VNC_PORT || 5900);
 const noVncPort = Number(process.env.NOVNC_PORT || 6080);
 const noVncPublicPort = Number(process.env.NOVNC_PUBLIC_PORT || process.env.NOVNC_PORT || 6080);
 const noVncSameOrigin =
   String(process.env.NOVNC_SAME_ORIGIN || "").toLowerCase() === "true" || Boolean(process.env.RENDER);
 const noVncPrefix = "/novnc";
 const noVncWsPath = "novnc/websockify";
+const noVncStaticDir = process.env.NOVNC_STATIC_DIR || "/usr/share/novnc";
+const noVncStaticMode = noVncSameOrigin
+  ? fs.existsSync(noVncStaticDir)
+    ? "filesystem"
+    : "proxy"
+  : "direct-port";
 
 app.set("trust proxy", true);
 app.use(express.json({ limit: "1mb" }));
 
-let noVncProxy = null;
-if (noVncSameOrigin) {
+let noVncAssetProxy = null;
+if (noVncSameOrigin && noVncStaticMode === "proxy") {
   const noVncTarget = `http://127.0.0.1:${noVncPort}`;
-  noVncProxy = createProxyMiddleware({
+  noVncAssetProxy = createProxyMiddleware({
     target: noVncTarget,
     changeOrigin: false,
-    ws: true,
+    ws: false,
     pathRewrite: (pathValue) => pathValue.replace(/^\/novnc/, ""),
     onError: (error, _req, res) => {
-      logger.error({ err: error }, "noVNC proxy failed");
+      logger.error({ err: error }, "noVNC asset proxy failed");
       if (res && typeof res.status === "function" && !res.headersSent) {
         res.status(502).json({
           ok: false,
-          error: "Remote browser is unavailable. Ensure noVNC is running."
+          error: "Remote browser assets are unavailable. Ensure noVNC is running."
         });
       }
     }
   });
-  app.use(noVncPrefix, noVncProxy);
+}
+
+if (noVncSameOrigin) {
+  app.use(noVncPrefix, (req, res, next) => {
+    res.set("Cache-Control", "no-cache");
+    next();
+  });
+
+  if (noVncStaticMode === "filesystem") {
+    app.use(noVncPrefix, express.static(noVncStaticDir, { index: false }));
+  } else if (noVncAssetProxy) {
+    app.use(noVncPrefix, noVncAssetProxy);
+  }
 }
 
 app.use(express.static(path.join(process.cwd(), "public")));
+
+function isVncEnabled() {
+  return String(process.env.ENABLE_VNC ?? "true").toLowerCase() === "true";
+}
+
+function checkTcpPort(port, timeoutMs = 800) {
+  return new Promise((resolve) => {
+    if (!Number.isFinite(port) || port <= 0) {
+      resolve(false);
+      return;
+    }
+
+    const socket = net.connect({
+      host: "127.0.0.1",
+      port
+    });
+
+    let settled = false;
+    const finish = (isReachable) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      socket.destroy();
+      resolve(isReachable);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
+}
+
+async function getRemoteBrowserDiagnostics() {
+  return {
+    enabled: isVncEnabled(),
+    same_origin: noVncSameOrigin,
+    static_assets: noVncStaticMode,
+    static_dir: noVncStaticMode === "filesystem" ? noVncStaticDir : null,
+    websocket_path: noVncSameOrigin ? `/${noVncWsPath}` : "/websockify",
+    vnc_port: vncPort,
+    novnc_port: noVncSameOrigin ? noVncPort : noVncPublicPort,
+    vnc_tcp_reachable: isVncEnabled() ? await checkTcpPort(vncPort) : false,
+    novnc_tcp_reachable:
+      noVncSameOrigin && noVncStaticMode !== "proxy" ? null : await checkTcpPort(noVncPort)
+  };
+}
 
 function isLoopbackHost(hostname) {
   const lower = (hostname || "").toLowerCase();
@@ -89,7 +160,93 @@ function buildNoVncUrl(req) {
   return url.toString();
 }
 
-app.get("/health", (_req, res) => {
+function attachVncWebSocketBridge(server) {
+  if (!noVncSameOrigin || !isVncEnabled()) {
+    return;
+  }
+
+  const wsPath = `/${noVncWsPath}`;
+  const vncBridge = new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: false
+  });
+
+  vncBridge.on("connection", (client, req) => {
+    const upstream = net.createConnection({
+      host: "127.0.0.1",
+      port: vncPort
+    });
+
+    upstream.setNoDelay(true);
+
+    const closeClient = (code, reason) => {
+      if (client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING) {
+        client.close(code, reason);
+      }
+    };
+
+    upstream.once("connect", () => {
+      logger.info({ url: req.url, vncPort }, "noVNC websocket connected to VNC backend");
+    });
+
+    upstream.on("data", (chunk) => {
+      if (client.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      client.send(chunk, { binary: true }, (error) => {
+        if (error) {
+          logger.error({ err: error }, "Failed sending VNC frame to browser");
+          upstream.destroy();
+        }
+      });
+    });
+
+    upstream.on("error", (error) => {
+      logger.error({ err: error, vncPort }, "Failed connecting to VNC backend");
+      closeClient(1011, "VNC backend unavailable");
+    });
+
+    upstream.on("close", () => {
+      closeClient(1000, "VNC connection closed");
+    });
+
+    upstream.on("end", () => {
+      closeClient(1000, "VNC connection ended");
+    });
+
+    client.on("message", (data, isBinary) => {
+      if (upstream.destroyed) {
+        return;
+      }
+
+      upstream.write(isBinary ? data : Buffer.from(data));
+    });
+
+    client.on("close", () => {
+      upstream.end();
+    });
+
+    client.on("error", (error) => {
+      logger.error({ err: error }, "Browser websocket to noVNC bridge failed");
+      upstream.destroy();
+    });
+  });
+
+  server.on("upgrade", (req, socket, head) => {
+    const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (requestUrl.pathname !== wsPath) {
+      socket.destroy();
+      return;
+    }
+
+    vncBridge.handleUpgrade(req, socket, head, (client) => {
+      vncBridge.emit("connection", client, req);
+    });
+  });
+}
+
+app.get("/health", async (_req, res) => {
   res.json({
     ok: true,
     uptime_s: Math.round(process.uptime()),
@@ -99,14 +256,18 @@ app.get("/health", (_req, res) => {
       size: queue.size(),
       pending: queue.pending(),
       concurrency: queueConcurrency
-    }
+    },
+    remote_browser: await getRemoteBrowserDiagnostics()
   });
 });
 
 app.get("/login/status", requireApiToken, async (req, res) => {
   res.json({
     ok: true,
-    ...(await getLoginSessionStatus({ vncUrl: buildNoVncUrl(req) }))
+    ...(await getLoginSessionStatus({
+      diagnostics: await getRemoteBrowserDiagnostics(),
+      vncUrl: buildNoVncUrl(req)
+    }))
   });
 });
 
@@ -183,15 +344,15 @@ const server = app.listen(port, () => {
       port,
       authRequired: isApiTokenEnabled(),
       noVncPort: noVncPublicPort,
-      noVncSameOrigin
+      noVncSameOrigin,
+      noVncStaticMode,
+      vncPort
     },
     "Express API listening"
   );
 });
 
-if (noVncProxy && typeof noVncProxy.upgrade === "function") {
-  server.on("upgrade", noVncProxy.upgrade);
-}
+attachVncWebSocketBridge(server);
 
 async function shutdown(signal) {
   logger.info({ signal }, "Shutting down");

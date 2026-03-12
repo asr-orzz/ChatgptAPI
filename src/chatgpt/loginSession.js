@@ -104,6 +104,7 @@ async function monitorLoginSession(logger) {
 }
 
 async function getLoginSessionStatus(extra = {}) {
+  const { diagnostics = null, vncUrl = null } = extra;
   return {
     status: runtime.status,
     started_at: runtime.startedAt,
@@ -112,7 +113,8 @@ async function getLoginSessionStatus(extra = {}) {
     login_url: runtime.loginUrl,
     session_file: getSessionFilePath(),
     session_file_exists: await sessionFileExists(),
-    vnc_url: extra.vncUrl || null
+    vnc_url: vncUrl,
+    diagnostics
   };
 }
 
