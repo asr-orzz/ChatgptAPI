@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ChatGPT API Admin</title>
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --panel: #fffdf7;
+        --ink: #16130f;
+        --muted: #6c6258;
+        --accent: #146c43;
+        --accent-2: #b8552f;
+        --border: #d8ccbd;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background:
+          radial-gradient(circle at top left, rgba(20, 108, 67, 0.12), transparent 30%),
+          linear-gradient(180deg, #f8f4ec 0%, #efe8dd 100%);
+        color: var(--ink);
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(2rem, 5vw, 3.8rem);
+        line-height: 0.95;
+      }
+
+      p {
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        margin-top: 24px;
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 18px;
+        box-shadow: 0 14px 40px rgba(22, 19, 15, 0.06);
+      }
+
+      .label {
+        display: block;
+        font-size: 0.9rem;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+
+      input,
+      textarea,
+      button {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        padding: 12px 14px;
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 150px;
+        resize: vertical;
+      }
+
+      button {
+        cursor: pointer;
+        background: var(--ink);
+        color: #fff;
+        border: none;
+        transition: transform 120ms ease, opacity 120ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      button.secondary {
+        background: var(--accent);
+      }
+
+      button.ghost {
+        background: var(--accent-2);
+      }
+
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .row > * {
+        flex: 1;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #f5efe5;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        min-height: 110px;
+        overflow: auto;
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ChatGPT Web UI API</h1>
+      <p>
+        Self-host this service, complete ChatGPT login manually through the remote browser once,
+        then call <code>/ask</code> as your private API.
+      </p>
+
+      <div class="grid">
+        <section class="card">
+          <h2>Admin Token</h2>
+          <label class="label" for="token">Bearer token</label>
+          <input id="token" type="password" placeholder="Paste API_BEARER_TOKEN if configured" />
+          <p class="muted">
+            This page stores the token only in your browser localStorage.
+          </p>
+          <div class="row">
+            <button id="save-token" class="secondary">Save Token</button>
+            <button id="refresh-status">Refresh Status</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Manual Login</h2>
+          <p class="muted">
+            Start a remote login session, open the VNC link, log into ChatGPT manually, then the
+            server saves the session automatically.
+          </p>
+          <div class="row">
+            <button id="start-login" class="secondary">Start Login Session</button>
+            <button id="cancel-login" class="ghost">Cancel Login</button>
+          </div>
+          <p id="vnc-link"></p>
+        </section>
+
+        <section class="card">
+          <h2>Test /ask</h2>
+          <label class="label" for="prompt">Prompt</label>
+          <textarea id="prompt" placeholder="Explain recursion simply"></textarea>
+          <button id="send-prompt" class="secondary">Send Prompt</button>
+        </section>
+
+        <section class="card">
+          <h2>Status</h2>
+          <pre id="status-output">Loading...</pre>
+        </section>
+
+        <section class="card" style="grid-column: 1 / -1;">
+          <h2>Response</h2>
+          <pre id="ask-output">No request sent yet.</pre>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const tokenInput = document.getElementById("token");
+      const statusOutput = document.getElementById("status-output");
+      const askOutput = document.getElementById("ask-output");
+      const vncLink = document.getElementById("vnc-link");
+
+      tokenInput.value = localStorage.getItem("chatgpt_api_token") || "";
+
+      function getHeaders() {
+        const headers = { "Content-Type": "application/json" };
+        const token = tokenInput.value.trim();
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+        return headers;
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            ...getHeaders(),
+            ...(options.headers || {})
+          }
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(body.error || `Request failed with status ${response.status}`);
+        }
+        return body;
+      }
+
+      async function refreshStatus() {
+        try {
+          const [health, login] = await Promise.all([
+            fetchJson("/health"),
+            fetchJson("/login/status")
+          ]);
+          statusOutput.textContent = JSON.stringify({ health, login }, null, 2);
+          if (login.vnc_url) {
+            vncLink.innerHTML = `Remote browser: <a href="${login.vnc_url}" target="_blank" rel="noreferrer">${login.vnc_url}</a>`;
+          } else {
+            vncLink.textContent = "";
+          }
+        } catch (error) {
+          statusOutput.textContent = error.message;
+        }
+      }
+
+      async function startLogin() {
+        try {
+          const response = await fetchJson("/login/start", { method: "POST" });
+          await refreshStatus();
+          if (response.vnc_url) {
+            window.open(response.vnc_url, "_blank", "noopener,noreferrer");
+          }
+        } catch (error) {
+          statusOutput.textContent = error.message;
+        }
+      }
+
+      async function cancelLogin() {
+        try {
+          await fetchJson("/login/cancel", { method: "POST" });
+          await refreshStatus();
+        } catch (error) {
+          statusOutput.textContent = error.message;
+        }
+      }
+
+      async function sendPrompt() {
+        askOutput.textContent = "Waiting for response...";
+        try {
+          const prompt = document.getElementById("prompt").value;
+          const response = await fetchJson("/ask", {
+            method: "POST",
+            body: JSON.stringify({ prompt })
+          });
+          askOutput.textContent = JSON.stringify(response, null, 2);
+        } catch (error) {
+          askOutput.textContent = error.message;
+        }
+      }
+
+      document.getElementById("save-token").addEventListener("click", () => {
+        localStorage.setItem("chatgpt_api_token", tokenInput.value.trim());
+        refreshStatus();
+      });
+      document.getElementById("refresh-status").addEventListener("click", refreshStatus);
+      document.getElementById("start-login").addEventListener("click", startLogin);
+      document.getElementById("cancel-login").addEventListener("click", cancelLogin);
+      document.getElementById("send-prompt").addEventListener("click", sendPrompt);
+
+      refreshStatus();
+      setInterval(refreshStatus, 10000);
+    </script>
+  </body>
+</html>

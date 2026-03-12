@@ -1,53 +1,141 @@
-# ChatGPT Playwright API
+# ChatGPT Web UI API
 
-This project exposes a local Express API that drives the ChatGPT web UI with Playwright. Authentication is manual only: the code never asks for, stores, or submits your email, password, or 2FA code.
+Self-hosted single-tenant project that lets one owner deploy their own instance, log into ChatGPT manually in a browser running on the server, and then call a private `/ask` API.
 
-## What it does
+## What this is
 
-- `npm run login` opens a visible browser window on the ChatGPT login page.
-- You complete login manually in the browser.
-- The script detects a successful login and saves Playwright storage state to `sessions/auth.json`.
-- `POST /ask` reuses that saved session, opens ChatGPT, starts a fresh chat, submits the prompt, waits for streaming to finish, scrapes the latest assistant reply, and returns plain text JSON.
-- If the session is missing or expired, the API returns a friendly error telling you to run `npm run login` again.
+- One deployed instance per owner
+- Manual ChatGPT login only
+- Saved session per deployment
+- HTTP API for `/ask`
+- Small admin page at `/`
+- Docker/noVNC support for remote manual login
+
+## What this is not
+
+- Not a multi-tenant SaaS
+- Not guaranteed stable against future ChatGPT UI changes
+- Not a pure headless browser system
 
 ## Project structure
 
 ```text
 package.json
 server.js
+Dockerfile
+docker-compose.yml
+docker/start.sh
+public/index.html
 src/chatgpt/browser.js
 src/chatgpt/login.js
+src/chatgpt/loginSession.js
 src/chatgpt/ask.js
 src/chatgpt/selectors.js
 src/chatgpt/session.js
+src/utils/auth.js
 src/utils/logger.js
-src/utils/wait.js
 src/utils/queue.js
+src/utils/wait.js
 .env.example
 README.md
 ```
 
-## Installation
+## Main usage modes
 
-1. Install Node.js 18+.
-2. Copy `.env.example` to `.env` and adjust values if needed.
-3. Install dependencies:
+### Local development
+
+Run locally and log in with a visible browser:
 
 ```bash
 npm install
+npm run login
+npm run start
 ```
 
-4. Install the Playwright browser if your environment does not already have it:
+### Self-hosted deployment
+
+1. Deploy with Docker
+2. Open the admin page at `http://your-host:3000/`
+3. Start a login session
+4. Open the noVNC link
+5. Log into ChatGPT manually in the remote browser
+6. Wait for the session to become `ready`
+7. Use `/ask`
+
+## Endpoints
+
+### `GET /health`
+
+Basic health and queue status.
+
+### `GET /login/status`
+
+Reports whether a login session is idle/running/ready/error and returns the noVNC URL.
+
+### `POST /login/start`
+
+Starts a remote manual-login session in a non-headless browser on the server.
+
+### `POST /login/cancel`
+
+Cancels the current remote login session.
+
+### `POST /ask`
+
+Request:
+
+```json
+{
+  "prompt": "Explain recursion simply"
+}
+```
+
+Success:
+
+```json
+{
+  "ok": true,
+  "answer": "Recursion is ...",
+  "timing_ms": {
+    "startup": 0,
+    "navigation": 0,
+    "submission": 0,
+    "wait_for_response": 0,
+    "scrape": 0,
+    "total": 0
+  }
+}
+```
+
+Failure:
+
+```json
+{
+  "ok": false,
+  "error": "clear error message"
+}
+```
+
+## API auth
+
+If you set `API_BEARER_TOKEN`, send it as:
 
 ```bash
-npx playwright install chromium
+curl -X POST http://localhost:3000/ask \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Explain recursion simply"}'
 ```
 
-## Environment variables
+If `API_BEARER_TOKEN` is blank, the service is open. Do not expose it publicly that way.
+
+## Example `.env`
 
 ```dotenv
 PORT=3000
 LOG_LEVEL=info
+API_BEARER_TOKEN=change-this-before-exposing-the-service
+PUBLIC_BASE_URL=http://localhost:3000
 CHATGPT_BASE_URL=https://chatgpt.com
 CHATGPT_LOGIN_URL=https://chatgpt.com/auth/login
 PLAYWRIGHT_HEADLESS=false
@@ -63,142 +151,102 @@ CHATGPT_STABILITY_POLLS=3
 CHATGPT_QUEUE_CONCURRENCY=1
 CHATGPT_SESSION_FILE=sessions/auth.json
 CHATGPT_DEBUG_DIR=debug
+LOGIN_SESSION_TIMEOUT_MS=900000
+ENABLE_XVFB=true
+ENABLE_VNC=true
+DISPLAY=:99
+XVFB_WHD=1440x1024x24
+VNC_PORT=5900
+NOVNC_PORT=6080
+NOVNC_PUBLIC_PORT=6080
+VNC_PASSWORD=
 ```
 
-Notes:
+## Docker deployment
 
-- `PLAYWRIGHT_LOGIN_HEADLESS` defaults to `false` so login happens in a visible browser.
-- `PLAYWRIGHT_HEADLESS` controls the browser used for normal API requests.
-- `PLAYWRIGHT_HEADLESS=false` is the safer default because ChatGPT frequently challenges headless browsers with Cloudflare.
-- `PLAYWRIGHT_START_MINIMIZED=true` starts the non-headless browser minimized so normal API calls stay mostly in the background.
-- `CHATGPT_QUEUE_CONCURRENCY=1` prevents concurrent requests from fighting over the same UI session.
-- `PLAYWRIGHT_BROWSER_CHANNEL=chrome` can be useful if you want Playwright to drive your installed Chrome instead of bundled Chromium.
-
-## Manual login flow
-
-Run:
+### 1. Build and run
 
 ```bash
-npm run login
+docker compose up --build
 ```
 
-Behavior:
+### 2. Open the admin page
 
-- Opens the ChatGPT login page in a visible browser.
-- Waits for you to finish login manually.
-- Detects authenticated UI markers.
-- Saves Playwright storage state to `sessions/auth.json`.
-- Closes the browser afterward.
-
-The login script never reads or logs raw credentials.
-
-## Start the API server
-
-Development:
-
-```bash
-npm run dev
+```text
+http://localhost:3000/
 ```
 
-Production-style:
+### 3. Start remote login
 
-```bash
-npm run start
-```
+- Enter your bearer token in the page if configured
+- Click `Start Login Session`
+- Open the noVNC URL shown on the page
+- Log into ChatGPT manually
+- Wait for status `ready`
 
-## API
-
-### `GET /health`
-
-Returns a simple status payload including queue state.
-
-### `POST /ask`
-
-Request body:
-
-```json
-{
-  "prompt": "your prompt here"
-}
-```
-
-Success response:
-
-```json
-{
-  "ok": true,
-  "answer": "scraped response text",
-  "timing_ms": {
-    "startup": 0,
-    "navigation": 0,
-    "submission": 0,
-    "wait_for_response": 0,
-    "scrape": 0,
-    "total": 0
-  }
-}
-```
-
-Failure response:
-
-```json
-{
-  "ok": false,
-  "error": "clear error message"
-}
-```
-
-## Example curl
+### 4. Call the API
 
 ```bash
 curl -X POST http://localhost:3000/ask \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Explain recursion simply"}'
 ```
 
-PowerShell:
+## Why Docker/noVNC exists
 
-```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:3000/ask `
-  -ContentType "application/json" `
-  -Body '{"prompt":"Explain recursion simply"}'
-```
+For remote deployment, there is no normal desktop window to click through. This project uses:
 
-## Session and debug artifacts
+- `Xvfb` for a virtual display
+- a headed browser for better reliability than headless mode
+- `x11vnc` and `noVNC` so you can log into ChatGPT manually from your own browser
 
-- Saved session file: `sessions/auth.json`
-- Failure screenshots: `debug/<timestamp>-ask-attempt-*.png`
-- Failure HTML dumps: `debug/<timestamp>-ask-attempt-*.html`
+That gives you a browser running on the server without needing a physical monitor.
 
-The code logs the saved artifact paths on failures so you can inspect the exact page state that caused the problem.
+## Files persisted on disk
 
-## Selector maintenance
+- Session state: `sessions/auth.json`
+- Failure screenshots: `debug/*.png`
+- Failure HTML dumps: `debug/*.html`
 
-If the ChatGPT UI changes, update selector fallbacks in `src/chatgpt/selectors.js`.
+Mount `sessions/` and `debug/` as volumes in Docker.
 
-Key selector groups:
+## Operational notes
 
-- `loginSuccessIndicators`
-- `loggedOutIndicators`
-- `newChatButtons`
-- `composerInputs`
-- `sendButtons`
-- `assistantMessages`
-- `stopGeneratingButtons`
-- `modalCloseButtons`
+- Default queue concurrency is `1`
+- One saved session per deployed instance
+- This project is meant for one owner per deployment
+- Remote login uses a separate temporary browser session that auto-saves the auth state when login succeeds
 
-## Reliability notes
+## Troubleshooting
 
-- Every major step uses explicit timeouts.
-- `/ask` retries once on transient UI failures.
-- If Cloudflare blocks the headless browser, the code retries once in a visible browser window.
-- Each request uses a fresh browser context with the saved storage state.
-- Contexts and pages are always closed after each request.
-- The latest assistant response is considered complete only after the text stays stable across multiple polls and any stop-generating control is gone.
+### Session missing or expired
 
-## Limitations
+- Start a new login session from `/` or `POST /login/start`
+- Open the noVNC link
+- Log into ChatGPT manually again
 
-- ChatGPT’s web UI changes over time. Selectors and flow assumptions may need updates.
-- Browser automation against consumer web apps can break due to experiments, captchas, modal changes, or anti-automation checks.
-- Headless mode is less reliable because Cloudflare may challenge or block it before the chat UI loads.
-- Because login is manual only, renewing an expired session still requires running `npm run login`.
+### Login session never becomes ready
+
+- Check the noVNC URL is reachable
+- Complete any Cloudflare or verification screen manually
+- Increase `LOGIN_SESSION_TIMEOUT_MS` if needed
+
+### `/ask` fails after login
+
+- Inspect the newest files in `debug/`
+- Check for UI changes or challenge pages
+- Update selectors in `src/chatgpt/selectors.js`
+
+### I do not want visible browser windows during normal requests
+
+- Keep `PLAYWRIGHT_HEADLESS=false`
+- Use Docker with `Xvfb`
+- The browser will run off-screen on the server display
+
+### Security checklist
+
+- Set `API_BEARER_TOKEN`
+- Set `VNC_PASSWORD` if you expose noVNC/VNC outside a trusted network
+- Restrict ports `3000`, `5900`, and `6080`
+- Put the service behind your own reverse proxy if exposing it publicly

@@ -6,7 +6,9 @@
   "scripts": {
     "login": "node src/chatgpt/login.js",
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
   },
   "keywords": [
     "chatgpt",
