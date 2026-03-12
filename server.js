@@ -16,9 +16,10 @@ const { createLogger } = require("./src/utils/logger");
 const logger = createLogger("server");
 const app = express();
 const queueConcurrency = Number(process.env.CHATGPT_QUEUE_CONCURRENCY || 1);
+const bodyLimit = process.env.REQUEST_BODY_LIMIT || "20mb";
 const queue = createQueue({ concurrency: queueConcurrency, logger });
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: bodyLimit }));
 app.use(express.static(path.join(process.cwd(), "public")));
 
 app.get("/health", async (_req, res) => {
@@ -129,11 +130,41 @@ app.post("/ask", async (req, res) => {
   }
 });
 
+app.use((error, _req, res, next) => {
+  if (!error) {
+    next();
+    return;
+  }
+
+  if (error.type === "entity.too.large" || error.status === 413) {
+    res.status(413).json({
+      ok: false,
+      error: `Upload is too large. Increase REQUEST_BODY_LIMIT or upload a smaller JSON file. Current limit: ${bodyLimit}.`
+    });
+    return;
+  }
+
+  if (error.type === "entity.parse.failed" || error instanceof SyntaxError) {
+    res.status(400).json({
+      ok: false,
+      error: "Invalid JSON body."
+    });
+    return;
+  }
+
+  logger.error({ err: error }, "Unhandled request error");
+  res.status(500).json({
+    ok: false,
+    error: "Unexpected server error."
+  });
+});
+
 const port = Number(process.env.PORT || 3000);
 const server = app.listen(port, () => {
   logger.info(
     {
       port,
+      bodyLimit,
       queueConcurrency
     },
     "Express API listening"
