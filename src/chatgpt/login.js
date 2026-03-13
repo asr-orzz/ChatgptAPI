@@ -45,7 +45,8 @@ async function run() {
       headless:
         process.env.PLAYWRIGHT_LOGIN_HEADLESS === undefined
           ? false
-          : process.env.PLAYWRIGHT_LOGIN_HEADLESS
+          : process.env.PLAYWRIGHT_LOGIN_HEADLESS,
+      startMinimized: false
     },
     logger
   );

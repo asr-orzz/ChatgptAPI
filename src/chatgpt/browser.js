@@ -23,7 +23,7 @@ function getLaunchOptions(overrides = {}) {
   const headless = requestedHeadless || runningInContainer || Boolean(process.env.RENDER) || !hasDisplay;
   const startMinimized = toBoolean(
     overrides.startMinimized,
-    toBoolean(process.env.PLAYWRIGHT_START_MINIMIZED, true)
+    toBoolean(process.env.PLAYWRIGHT_START_MINIMIZED, false)
   );
   const slowMo = Number(process.env.PLAYWRIGHT_SLOW_MO || 0);
   const disableSandbox = toBoolean(
@@ -64,7 +64,8 @@ function getBrowserCacheKey(overrides = {}) {
   return JSON.stringify({
     channel: options.channel || "",
     headless: options.headless,
-    slowMo: options.slowMo
+    slowMo: options.slowMo,
+    startMinimized: Boolean(options.args?.includes("--start-minimized"))
   });
 }
 
@@ -74,7 +75,8 @@ async function launchBrowser(overrides = {}, logger) {
     {
       headless: launchOptions.headless,
       slowMo: launchOptions.slowMo,
-      channel: launchOptions.channel || "bundled-chromium"
+      channel: launchOptions.channel || "bundled-chromium",
+      startMinimized: Boolean(launchOptions.args?.includes("--start-minimized"))
     },
     "Launching browser"
   );

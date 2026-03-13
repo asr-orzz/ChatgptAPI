@@ -2,6 +2,27 @@ const { CloudflareChallengeError } = require("./errors");
 const { selectors, getFirstVisibleLocator, isAnyVisible } = require("./selectors");
 const { waitForCondition } = require("../utils/wait");
 
+function getChallengeTimeoutMs(headless) {
+  const configuredDefaultTimeout = Number(process.env.CHATGPT_CHALLENGE_TIMEOUT_MS);
+  const configuredVisibleTimeout = Number(process.env.CHATGPT_VISIBLE_CHALLENGE_TIMEOUT_MS);
+
+  if (headless) {
+    return Number.isFinite(configuredDefaultTimeout) && configuredDefaultTimeout > 0
+      ? configuredDefaultTimeout
+      : 15000;
+  }
+
+  if (Number.isFinite(configuredVisibleTimeout) && configuredVisibleTimeout > 0) {
+    return configuredVisibleTimeout;
+  }
+
+  if (Number.isFinite(configuredDefaultTimeout) && configuredDefaultTimeout > 0) {
+    return Math.max(configuredDefaultTimeout, 300000);
+  }
+
+  return 300000;
+}
+
 async function closeTransientModals(page, logger) {
   for (const selector of selectors.modalCloseButtons) {
     const locator = page.locator(selector).first();
@@ -18,7 +39,15 @@ async function closeTransientModals(page, logger) {
   }
 }
 
+async function isChatReady(page) {
+  return isAnyVisible(page, selectors.loginSuccessIndicators, { timeout: 750 });
+}
+
 async function isCloudflareChallenge(page) {
+  if (await isChatReady(page)) {
+    return false;
+  }
+
   if (await isAnyVisible(page, selectors.challengeIndicators, { timeout: 750 })) {
     return true;
   }
@@ -36,7 +65,7 @@ async function isCloudflareChallenge(page) {
 }
 
 async function waitForChallengeToClear(page, { headless, logger }) {
-  const timeoutMs = Number(process.env.CHATGPT_CHALLENGE_TIMEOUT_MS || 15000);
+  const timeoutMs = getChallengeTimeoutMs(headless);
   const pollIntervalMs = 1000;
 
   if (!(await isCloudflareChallenge(page))) {
@@ -48,9 +77,17 @@ async function waitForChallengeToClear(page, { headless, logger }) {
     "Encountered Cloudflare verification before ChatGPT loaded"
   );
 
+  if (!headless) {
+    logger?.info(
+      { timeoutMs },
+      "Waiting for Cloudflare verification to clear in the visible browser window"
+    );
+    await page.bringToFront().catch(() => {});
+  }
+
   try {
     await waitForCondition(
-      async () => !(await isCloudflareChallenge(page)),
+      async () => (await isChatReady(page)) || !(await isCloudflareChallenge(page)),
       {
         timeoutMs,
         intervalMs: pollIntervalMs,
@@ -68,7 +105,7 @@ async function waitForChallengeToClear(page, { headless, logger }) {
     }
 
     throw new CloudflareChallengeError(
-      "Cloudflare verification did not clear in the visible browser. Complete any verification in the browser window and try again.",
+      `Cloudflare verification did not clear in the visible browser within ${Math.round(timeoutMs / 1000)} seconds. Complete any verification in the opened browser window and try again.`,
       { headless }
     );
   }

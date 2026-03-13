@@ -42,9 +42,18 @@ async function runSessionVerification({ storageState, headless, logger }) {
   let page;
 
   try {
-    const browser = await getSharedBrowser({ headless }, logger);
+    const browser = await getSharedBrowser(
+      {
+        headless,
+        startMinimized: headless ? undefined : false
+      },
+      logger
+    );
     context = await browser.newContext({ storageState });
     page = await context.newPage();
+    if (!headless) {
+      await page.bringToFront().catch(() => {});
+    }
     page.setDefaultTimeout(navigationTimeout);
     page.setDefaultNavigationTimeout(navigationTimeout);
 

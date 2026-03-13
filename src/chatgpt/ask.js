@@ -201,9 +201,18 @@ async function runSingleAttempt({ prompt, logger, attempt, headless }) {
   let page;
 
   const startupStart = performance.now();
-  const browser = await getSharedBrowser({ headless }, logger);
+  const browser = await getSharedBrowser(
+    {
+      headless,
+      startMinimized: headless ? undefined : false
+    },
+    logger
+  );
   context = await browser.newContext({ storageState: sessionPath });
   page = await context.newPage();
+  if (!headless) {
+    await page.bringToFront().catch(() => {});
+  }
   page.setDefaultTimeout(navigationTimeout);
   page.setDefaultNavigationTimeout(navigationTimeout);
   timings.mark("startup", performance.now() - startupStart);
